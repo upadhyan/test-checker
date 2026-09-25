@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 — Config, `init`, ledger and state
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Dirty computation follows §10
 - [ ] `scope --since` reports hunk ranges

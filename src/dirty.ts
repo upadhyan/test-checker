@@ -57,7 +57,8 @@ export function scope(repo: Repo, since = "HEAD"): ScopeEntry[] {
       const isNew = untracked.includes(file);
       let ranges: [number, number][];
       if (isNew) {
-        const n = fs.readFileSync(path.join(repo.root, file), "utf8").split("\n").length;
+        const text = fs.readFileSync(path.join(repo.root, file), "utf8");
+        const n = Math.max(1, text.split("\n").length - (text.endsWith("\n") ? 1 : 0));
         ranges = [[1, n]];
       } else ranges = hunks(repo.git(["diff", "-U0", base, "--", file]));
       return { file, ranges, verified: verified[file]?.sha === shas[file], ...(isNew ? { untracked: true } : {}) };

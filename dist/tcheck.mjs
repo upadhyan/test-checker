@@ -614,7 +614,8 @@ function scope(repo, since = "HEAD") {
     const isNew = untracked.includes(file);
     let ranges;
     if (isNew) {
-      const n = fs3.readFileSync(path3.join(repo.root, file), "utf8").split("\n").length;
+      const text = fs3.readFileSync(path3.join(repo.root, file), "utf8");
+      const n = Math.max(1, text.split("\n").length - (text.endsWith("\n") ? 1 : 0));
       ranges = [[1, n]];
     } else ranges = hunks(repo.git(["diff", "-U0", base, "--", file]));
     return { file, ranges, verified: verified[file]?.sha === shas[file], ...isNew ? { untracked: true } : {} };
@@ -1066,24 +1067,6 @@ var init_lib = __esm({
   }
 });
 
-// src/status.ts
-var status_exports = {};
-__export(status_exports, {
-  status: () => status
-});
-function status(repo) {
-  const dirty = dirtyFiles(repo);
-  const data = { gate: repo.config.gate, dirty_files: dirty, open_runs: [], unresolved_verdicts: [] };
-  const human = [`gate: ${data.gate}`, `dirty: ${dirty.length ? dirty.join(", ") : "none"}`].join("\n");
-  return { data, human };
-}
-var init_status = __esm({
-  "src/status.ts"() {
-    "use strict";
-    init_dirty();
-  }
-});
-
 // src/run.ts
 import * as fs8 from "node:fs";
 import * as os2 from "node:os";
@@ -1098,6 +1081,11 @@ function loadRun(repo, runId) {
 }
 function saveRun(repo, run2) {
   writeJson(runDir(repo, run2.id, "run.json"), run2);
+}
+function listRuns(repo) {
+  const d = repo.p("runs");
+  if (!fs8.existsSync(d)) return [];
+  return fs8.readdirSync(d).filter((r) => fs8.existsSync(path7.join(d, r, "run.json"))).sort().map((r) => readJson(path7.join(d, r, "run.json")));
 }
 function newRunId() {
   const d = /* @__PURE__ */ new Date();
@@ -1299,8 +1287,77 @@ var init_run = __esm({
   }
 });
 
-// src/exec.ts
+// src/verdicts.ts
 import * as fs9 from "node:fs";
+function loadVerdicts(repo, runId) {
+  return readJson(runDir(repo, runId, "verdicts.json"), {});
+}
+function effective(e) {
+  return e?.override ?? e?.model;
+}
+function unresolved(repo, runId) {
+  const run2 = loadRun(repo, runId);
+  const verdicts = loadVerdicts(repo, runId);
+  const resultsFile = runDir(repo, runId, "results.json");
+  const results = fs9.existsSync(resultsFile) ? readJson(resultsFile) : null;
+  const ledger = repo.readLedger().filter((e) => e.run === runId);
+  const out = [];
+  for (const [test, entry] of Object.entries(verdicts)) {
+    const v = effective(entry);
+    if (!v || v.verdict === "test-wrong") continue;
+    const target = test.split("::")[0];
+    if (v.verdict === "code-wrong") {
+      const lr = results?.labels[ERRORS_LABEL[run2.mode]];
+      const fixedNow = results && results.at > v.at && lr?.tests[test]?.final === "pass";
+      if (fixedNow) continue;
+    } else {
+      if (entry.override) continue;
+      const edit = ledger.find((e) => e.type === "spec_edited" && e.target === target && e.ts > v.at);
+      if (edit && ledger.some((e) => e.type === "tests_submitted" && e.target === target && e.ts > edit.ts)) continue;
+    }
+    out.push({ run: runId, test, target, verdict: v.verdict, reason: v.reason, spec_basis: v.spec_basis });
+  }
+  return out;
+}
+function openRuns(repo) {
+  return listRuns(repo).filter((r) => r.status === "open").map((r) => r.id);
+}
+var init_verdicts = __esm({
+  "src/verdicts.ts"() {
+    "use strict";
+    init_run();
+    init_util();
+  }
+});
+
+// src/status.ts
+var status_exports = {};
+__export(status_exports, {
+  status: () => status
+});
+function status(repo) {
+  const dirty = dirtyFiles(repo);
+  const runs = openRuns(repo);
+  const open = runs.flatMap((r) => unresolved(repo, r));
+  const data = { gate: repo.config.gate, dirty_files: dirty, open_runs: runs, unresolved_verdicts: open };
+  const human = [
+    `gate: ${data.gate}`,
+    `unverified source files: ${dirty.length ? dirty.join(", ") : "none"}`,
+    `open runs: ${runs.length ? runs.join(", ") : "none"}`,
+    ...open.length ? ["unresolved verdicts:", ...open.map((u) => `  ${u.verdict}: ${u.test} (${u.run})`)] : ["unresolved verdicts: none"]
+  ].join("\n");
+  return { data, human };
+}
+var init_status = __esm({
+  "src/status.ts"() {
+    "use strict";
+    init_dirty();
+    init_verdicts();
+  }
+});
+
+// src/exec.ts
+import * as fs10 from "node:fs";
 import * as path8 from "node:path";
 function repairPatterns(cfg) {
   const src = cfg.repair_error_patterns ?? DEFAULT_PATTERNS[FAMILY[cfg.language.toLowerCase()]] ?? Object.values(DEFAULT_PATTERNS).flat();
@@ -1384,15 +1441,15 @@ async function execRun(repo, runId, opts = {}) {
   const cfg = repo.config;
   const log = opts.log ?? ((s) => process.stderr.write(s + "\n"));
   const composedFile = runDir(repo, runId, "composed.json");
-  if (!fs9.existsSync(composedFile)) throw usage(`nothing composed for ${runId}; run \`tcheck compose ${runId}\` first`);
+  if (!fs10.existsSync(composedFile)) throw usage(`nothing composed for ${runId}; run \`tcheck compose ${runId}\` first`);
   const composed = readJson(composedFile).files;
   const n = run2.exec_count + 1;
   const env = commandEnv(cfg);
   const patterns = repairPatterns(cfg);
   const results = { exec: n, at: nowIso(), labels: {} };
   const files = [
-    ...composed.map((f) => ({ path: f.path, target: f.target, content: fs9.readFileSync(path8.join(runDir(repo, runId, "composed"), f.path), "utf8") })),
-    ...run2.existing.map((p) => ({ path: p, target: "existing", content: fs9.readFileSync(path8.join(repo.root, p), "utf8") }))
+    ...composed.map((f) => ({ path: f.path, target: f.target, content: fs10.readFileSync(path8.join(runDir(repo, runId, "composed"), f.path), "utf8") })),
+    ...run2.existing.map((p) => ({ path: p, target: "existing", content: fs10.readFileSync(path8.join(repo.root, p), "utf8") }))
   ];
   const testDir = composed.length ? path8.posix.dirname(composed[0].path) : "";
   const runLabel = async (label, commit, reruns, patch, only) => {
@@ -1402,8 +1459,8 @@ async function execRun(repo, runId, opts = {}) {
     for (const f of composed) {
       const src = path8.join(runDir(repo, runId, "composed"), f.path);
       const dst = path8.join(wt.dir, f.path);
-      fs9.mkdirSync(path8.dirname(dst), { recursive: true });
-      fs9.copyFileSync(src, dst);
+      fs10.mkdirSync(path8.dirname(dst), { recursive: true });
+      fs10.copyFileSync(src, dst);
       wt.meta.composed.push(f.path);
     }
     wt.saveMeta();
@@ -1437,13 +1494,13 @@ async function execRun(repo, runId, opts = {}) {
     const perRerun = [];
     for (let k = 1; k <= reruns; k++) {
       const kdir = runDir(repo, runId, "exec", String(n), label, String(k));
-      fs9.rmSync(kdir, { recursive: true, force: true });
-      fs9.mkdirSync(kdir, { recursive: true });
+      fs10.rmSync(kdir, { recursive: true, force: true });
+      fs10.mkdirSync(kdir, { recursive: true });
       const junit = path8.join(kdir, "junit.xml");
       const cmd = fillCommand(cfg.commands.run, { ...vars, junit: q(junit) });
       log(`[${label}] run ${k}/${reruns}`);
       const r = await shell(cmd, { cwd: wt.dir, env, timeoutSec: timeout });
-      fs9.writeFileSync(path8.join(kdir, "output.txt"), `$ ${cmd}
+      fs10.writeFileSync(path8.join(kdir, "output.txt"), `$ ${cmd}
 exit ${r.code}${r.timedOut ? " (timeout)" : ""}
 
 ${r.stdout}
@@ -1565,7 +1622,7 @@ async function runMutants(repo, run2, results, runLabel, log) {
 }
 function loadResults(repo, runId) {
   const f = runDir(repo, runId, "results.json");
-  if (!fs9.existsSync(f)) throw usage(`no results for ${runId}; run \`tcheck exec ${runId}\``);
+  if (!fs10.existsSync(f)) throw usage(`no results for ${runId}; run \`tcheck exec ${runId}\``);
   return readJson(f);
 }
 var DEFAULT_PATTERNS, FAMILY, q, tail;
@@ -1602,7 +1659,7 @@ var init_exec = __esm({
 });
 
 // src/classify.ts
-import * as fs10 from "node:fs";
+import * as fs11 from "node:fs";
 function outcomeOf(lr, id) {
   if (!lr) return "missing";
   const t = lr.tests[id];
@@ -1657,7 +1714,7 @@ function classify(repo, runId) {
       const target = loadTarget(repo, runId, bt.target);
       const unit = target.symbol.split(/[.:#]/).pop();
       const re = new RegExp(`\\b${unit.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
-      const pair = existing.filter((e) => re.test(fs10.readFileSync(`${repo.root}/${e.file}`, "utf8"))).map((e) => e.id);
+      const pair = existing.filter((e) => re.test(fs11.readFileSync(`${repo.root}/${e.file}`, "utf8"))).map((e) => e.id);
       if (pair.length) {
         qi.pair = pair;
         qi.reason += `; existing test(s) on the same unit pass: ${pair.map((p) => p.split("::").pop()).join(", ")}`;
@@ -1747,7 +1804,7 @@ ${r.setup_error}`] : []).join("\n");
 });
 
 // src/cli.ts
-import * as fs11 from "node:fs";
+import * as fs12 from "node:fs";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 function parseArgs(argv) {
   const a = { _: [], flags: {} };
@@ -1819,7 +1876,7 @@ async function loadCommands() {
 function isMain() {
   if (!process.argv[1]) return false;
   try {
-    return fs11.realpathSync(process.argv[1]) === fs11.realpathSync(fileURLToPath2(import.meta.url));
+    return fs12.realpathSync(process.argv[1]) === fs12.realpathSync(fileURLToPath2(import.meta.url));
   } catch {
     return false;
   }
