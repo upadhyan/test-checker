@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 — Tracer: hand-written tests classified on `off_by_one`
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Snapshot leaves `git status` and the index unchanged
 - [ ] `new` mode labels accepted/disputed
