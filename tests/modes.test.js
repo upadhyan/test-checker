@@ -100,7 +100,7 @@ test("audit rewrite: after the fix only the suspect that fails is bad; it is del
   fs.rmSync(path.join(dir, "tests/test_existing.py"));
   assert.equal(tcheck(dir, ["exec", run]).code, 0);
   tcheck(dir, ["classify", run]);
-  const r = tcheck(dir, ["promote", run, "--tests", blind, "--json"]);
+  const r = tcheck(dir, ["promote", run, "--tests", `${blind}\n`, "--json"]); // a quoted "$IDS" list, as agents pass it
   assert.equal(r.code, 0, r.stderr);
   assert.equal(r.json.promoted.length, 1);
   assert.ok(fs.existsSync(path.join(dir, "tests/test_other.py")), "other existing tests are kept");

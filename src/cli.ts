@@ -30,7 +30,9 @@ export function parseArgs(argv: string[]): Args {
       else if (MULTI.has(k)) {
         const vals: string[] = v !== undefined ? [v] : [];
         while (v === undefined && i + 1 < argv.length && !argv[i + 1].startsWith("--")) vals.push(argv[++i]);
-        a.flags[k] = [...((a.flags[k] as string[]) ?? []), ...vals];
+        // Agents often pass a list as one quoted "$VAR": split ids on whitespace/commas, paths on newlines.
+        const split = vals.flatMap((s) => s.split(k === "tests" ? /[\s,]+/ : /\r?\n/)).filter(Boolean);
+        a.flags[k] = [...((a.flags[k] as string[]) ?? []), ...split];
       } else {
         if (v === undefined) {
           if (i + 1 >= argv.length) throw usage(`--${k} needs a value`);

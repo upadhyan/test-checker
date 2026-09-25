@@ -3631,7 +3631,8 @@ function parseArgs(argv) {
       else if (MULTI.has(k)) {
         const vals = v !== void 0 ? [v] : [];
         while (v === void 0 && i + 1 < argv.length && !argv[i + 1].startsWith("--")) vals.push(argv[++i]);
-        a.flags[k] = [...a.flags[k] ?? [], ...vals];
+        const split = vals.flatMap((s) => s.split(k === "tests" ? /[\s,]+/ : /\r?\n/)).filter(Boolean);
+        a.flags[k] = [...a.flags[k] ?? [], ...split];
       } else {
         if (v === void 0) {
           if (i + 1 >= argv.length) throw usage(`--${k} needs a value`);

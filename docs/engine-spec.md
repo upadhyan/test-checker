@@ -520,6 +520,8 @@ Criteria 1 and 4 passed everywhere; criterion 2 failed on `boundary` and `null_g
 
 All four criteria pass (criterion 3: 0 vs 19). With the intent stated, the spec no longer adopts the bug, so `boundary` and `null_guard` catch it. This is why the skill passes the user's described intent through `--intent`.
 
+**Live audit** (Claude Code 2.1.282, `claude -p --plugin-dir .`, prompt `/test-checker audit my tests please`, 2026-09-25): the `off_by_one` buggy tree with one existing file holding `test_sum_to_three` (asserts the buggy `3`) and `test_sum_to_zero`. The agent inventoried one target, ran the spec, blind-writer and adjudicator subagents, got `code-wrong`, fixed the loop, re-ran `exec` (27/27 blind tests accepted, `test_sum_to_three` now disputed), deleted only that function, and promoted the blind file. 34 turns. Friction fixed afterwards: `--lines` must start at the declaration (the skill now says so), and `--tests` accepts one quoted whitespace-separated list.
+
 ## 15. OpenCode and Pi integrations (thin code, built with the engine)
 
 **`.opencode/plugins/test-checker.mjs`** imports `../../dist/tcheck.mjs` and does the following:

@@ -63,7 +63,7 @@ tcheck run start --mode new
 
 `tcheck scope --json` lists changed files and hunks since the last verified state. Map them to the changed functions or methods and register each with `tcheck target add` as above. Keep scope to changed units unless the user asks for more.
 
-**All modes:** `--lines` is the body's line range. The engine uses it to stop the body leaking into blind payloads, so get it right.
+**All modes:** `--lines` runs from the declaration line (`def`, `function`, the method signature) through the last line of the body. The engine reads the signature from the first lines and uses the rest to stop the body leaking into blind payloads, so get it right.
 
 ## Step 2: Context
 
