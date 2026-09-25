@@ -44,6 +44,25 @@ test("blind-run --backend claude: isolated temp dir, no tools, payload never pri
   assert.equal(tcheck(dir, ["compose", run]).code, 0);
 });
 
+test("pi and opencode backends get the prompt on stdin, not as an argument", () => {
+  const { log, env } = fakeEnv();
+  const bin = tmpdir();
+  for (const name of ["pi", "opencode"]) fs.copyFileSync(path.join(FAKE_BIN, "claude"), path.join(bin, name)), fs.chmodSync(path.join(bin, name), 0o755);
+  env.PATH = `${bin}${path.delimiter}${env.PATH}`;
+  for (const backend of ["pi", "opencode"]) {
+    const r = tcheck(ROOT, ["selftest", "--backend", backend, "--fixtures", "off_by_one", "--json"], { env });
+    assert.equal(r.code, 0, r.stderr + r.stdout);
+  }
+  for (const c of calls(log)) assert.ok(!c.argv.some((a) => a.includes("\n")), "no multi-line argument");
+});
+
+test("winQuote survives the CRT argv parser for empty strings, quotes and trailing backslashes", async () => {
+  const { winQuote } = await import("../dist/tcheck.mjs");
+  assert.equal(winQuote(""), '""');
+  assert.equal(winQuote('{"a":{}}'), '"{\\"a\\":{}}"');
+  assert.equal(winQuote("C:\\dir\\"), '"C:\\dir\\\\"');
+});
+
 test("selftest runs the pipeline blind vs baseline and prints the table (fake backend)", () => {
   const { log, env } = fakeEnv();
   const r = tcheck(ROOT, ["selftest", "--backend", "claude", "--fixtures", "off_by_one", "--json"], { env });

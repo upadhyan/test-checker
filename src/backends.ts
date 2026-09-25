@@ -24,9 +24,12 @@ export function childEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
+/** cmd.exe joins args unquoted under `shell: true`: quote each one for the CRT argv parser, so `""` and JSON survive. */
+export const winQuote = (a: string) => `"${a.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, "$1$1")}"`;
+
 function spawnText(cmd: string, args: string[], opts: { cwd: string; input?: string; timeoutSec: number }): Promise<{ code: number; stdout: string; stderr: string; timedOut: boolean }> {
   return new Promise((resolve) => {
-    const child = spawn(cmd, args, { cwd: opts.cwd, env: childEnv(), windowsHide: true, shell: isWin, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(cmd, isWin ? args.map(winQuote) : args, { cwd: opts.cwd, env: childEnv(), windowsHide: true, shell: isWin, stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     let timedOut = false;
@@ -85,10 +88,13 @@ export async function runBackend(backend: Backend, prompt: string, opts: Backend
         break;
       case "opencode":
         fs.writeFileSync(path.join(tmp, "opencode.json"), opencodeConfig());
-        args = ["run", "--agent", "tcheck-blind-writer", "--dir", tmp, ...(model.length ? ["-m", ...model] : []), prompt];
+        // Prompts go on stdin (opencode and pi both read piped stdin as the message): a multi-line argument can't cross cmd.exe.
+        args = ["run", "--agent", "tcheck-blind-writer", "--dir", tmp, ...(model.length ? ["-m", ...model] : [])];
+        input = prompt;
         break;
       default: // pi
-        args = ["-p", "--no-tools", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-session", "--offline", ...(model.length ? ["--model", ...model] : []), prompt];
+        args = ["-p", "--no-tools", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-session", "--offline", ...(model.length ? ["--model", ...model] : [])];
+        input = prompt;
     }
     const r = await spawnText(backend, args, { cwd: tmp, input, timeoutSec });
     if (r.timedOut) throw new TcheckError(`${backend} timed out after ${timeoutSec}s`, EXIT.COMMAND);

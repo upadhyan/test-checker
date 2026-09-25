@@ -233,7 +233,7 @@ On failure, report the offending lines with their locations.
   5. Store the commit under `refs/tcheck/<run>/worktree`.
 
   This includes untracked files.
-- **Worktrees.** Each commit gets one worktree, `git worktree add --detach .test-checker/worktrees/_cache/<sha> <sha>`, shared by every run and label that uses that commit (mutants use `_cache/<sha>-mutant`). Before each use the engine removes the files it composed last time and runs `git checkout -- .`; untracked build output (e.g. `node_modules` from `commands.setup`) is kept, and `setup` runs once per worktree. Cached worktrees are not removed on report; delete `.test-checker/worktrees/` to reclaim space.
+- **Worktrees.** Each commit gets one worktree, `git worktree add --detach .test-checker/worktrees/_cache/<sha> <sha>`, shared by every run and label that uses that commit (mutants use `_cache/<sha>-mutant`). Before each use the engine removes the files it composed last time and runs `git checkout -- .`; untracked build output (e.g. `node_modules` from `commands.setup`) is kept, and `setup` runs once per worktree. Cached worktrees are not removed on report. Each use touches `_cache/<sha>.json`; creating a new cached worktree removes every entry unused for 7 days. Delete `.test-checker/worktrees/` to reclaim space sooner.
 - **Re-snapshot.** On every `exec` after the first, labels given as `WORKTREE` are snapshotted again (ledger `revision_refreshed`), so a code fix made after a `code-wrong` verdict is what gets tested.
 - **Spec-source revision:**
 
@@ -412,8 +412,8 @@ Confirmed flags (VERIFY 4), checked against claude 2.1.282, codex-cli 0.147.0, o
 | `api` (opt-in only) | HTTPS POST: Anthropic Messages API (`anthropic-version: 2023-06-01`) or OpenAI Responses API; no tools; `blind.api.model`; key from `blind.api.key_env`. For users who have a key. Never a default. | strong | not exercised (no key, by design) |
 | `claude` | `claude -p --tools "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' --setting-sources "" --disable-slash-commands --no-session-persistence --output-format text [--model M]`, prompt on stdin. `--bare` would also skip CLAUDE.md auto-discovery but forces API-key auth, so it breaks subscription login and is not used. | medium to strong (user CLAUDE.md is still loaded; no tools, so nothing can be read) | confirmed on a subscription login |
 | `codex` | `codex exec --sandbox read-only --skip-git-repo-check --ephemeral --color never -C <tmpdir> -o <file> [-m M] -`, prompt on stdin, answer read from the `-o` file | medium | flags accepted; the run on this machine was refused because the configured model needs a newer Codex CLI |
-| `opencode` | `opencode run --agent tcheck-blind-writer --dir <tmpdir> [-m M] "<prompt>"`, with a temp `opencode.json` in `<tmpdir>` defining that agent with every permission `deny` and `tools: {"*": false}` | strong | flags accepted; no usable provider on this machine (OpenCode's free tier refuses headless use) |
-| `pi` | `pi -p --no-tools --no-extensions --no-skills --no-prompt-templates --no-context-files --no-session --offline [--model M] "<prompt>"` | strong (no tools, no context files) | confirmed |
+| `opencode` | `opencode run --agent tcheck-blind-writer --dir <tmpdir> [-m M]`, prompt on stdin, with a temp `opencode.json` in `<tmpdir>` defining that agent with every permission `deny` and `tools: {"*": false}` | strong | flags accepted; no usable provider on this machine (OpenCode's free tier refuses headless use) |
+| `pi` | `pi -p --no-tools --no-extensions --no-skills --no-prompt-templates --no-context-files --no-session --offline [--model M]`, prompt on stdin | strong (no tools, no context files) | confirmed (stdin read confirmed in pi's `readPipedStdin`) |
 
 Harness session variables (`CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`, `CLAUDE_PROJECT_DIR`, `PLUGIN_ROOT`, `CODEX_THREAD_ID`, …) are stripped from the child environment so a nested CLI doesn't think it runs inside the caller's session.
 
@@ -508,6 +508,18 @@ It must not require any harness session. The model calls go through the backend.
 
 Criteria 1 and 4 passed everywhere; criterion 2 failed on `boundary` and `null_guard`; criterion 3 warned (16 vs 16). Both failures are the paper's known misguidance channel, not engine faults. With the spec derived from the buggy code and no stated intent, the extractor adopted the bug as the convention: a half-open `[lo, hi)` for `in_range`, and `""` for blank names in `normalize_name`. The blind tests then enshrined it. It also over-specified "robustness" (name particles, Roman numerals, `TypeError`s), which shows up as broken tests for adjudication.
 
+**With intent** (claude backend, `--with-intent`, 2026-09-25):
+
+| fixture | blind eff / mis / broken / neutral | baseline eff / mis / broken / neutral |
+|---|---|---|
+| off_by_one | 9 / 0 / 4 / 16 | 0 / 8 / 0 / 3 |
+| stale_state | 15 / 0 / 0 / 10 | 0 / 1 / 0 / 10 |
+| wrong_operator | 8 / 0 / 31 / 23 | 0 / 3 / 0 / 9 |
+| boundary | 5 / 0 / 6 / 47 | 0 / 4 / 0 / 11 |
+| null_guard | 5 / 0 / 3 / 24 | 0 / 3 / 0 / 19 |
+
+All four criteria pass (criterion 3: 0 vs 19). With the intent stated, the spec no longer adopts the bug, so `boundary` and `null_guard` catch it. This is why the skill passes the user's described intent through `--intent`.
+
 ## 15. OpenCode and Pi integrations (thin code, built with the engine)
 
 **`.opencode/plugins/test-checker.mjs`** imports `../../dist/tcheck.mjs` and does the following:
@@ -547,6 +559,5 @@ Status of every **VERIFY** item and of known gaps after the first build (2026-09
 | VERIFY 8: OpenCode end-of-turn event and single-tool agents | Typed against `@opencode-ai/plugin` 1.15.13 (`session.idle` via `event`, `tools: {"*": false, <tool>: true}`, permissions `deny`). Open: a live OpenCode session. Also open: whether `config.skills.paths` is the key OpenCode reads, and whether plugins can import `@opencode-ai/plugin`/`zod`. |
 | VERIFY 9: Pi tool-less model call | **Confirmed** from the pi 0.84 docs (`ctx.modelRegistry.complete`). The extension loads live in pi 0.84.1 and registers its four tools; an end-to-end Pi loop has not been run. |
 | Cowork marker (§4) | Open. |
-| Windows | Untested. Paths use `node:path` and commands go through `cmd /c`, but the `opencode`/`pi` backends pass the prompt as an argument, which `shell: true` on Windows does not quote. |
-| Worktree cache growth | Cached worktrees are never pruned automatically (§8.1). |
-| Selftest criterion 2 in the paper setting | Fails on `boundary` and `null_guard` (§14); `--with-intent` has not been run yet. |
+| Windows | Untested live. Paths use `node:path` and commands go through `cmd /c`. Every backend sends the prompt on stdin, and backend args are quoted for the CRT parser (`winQuote`) so `""` and JSON survive `shell: true`. |
+| Selftest criterion 2 in the paper setting | Fails on `boundary` and `null_guard` (§14). With `--with-intent` every criterion passes (§14), so the gap is the paper's no-intent setting, not the engine. |

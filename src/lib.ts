@@ -15,7 +15,7 @@ export { mapRange, parseVerdict } from "./adjudicate";
 export { evaluateHook, normalize as normalizeHookEvent, hookOutput, editedPaths, protectGlobs } from "./hooks";
 export type { Decision, NormalizedEvent } from "./hooks";
 export { callTool, TOOLS as MCP_TOOLS, handle as handleMcp } from "./mcp";
-export { runBackend, childEnv } from "./backends";
+export { runBackend, childEnv, winQuote } from "./backends";
 export { specPrompt, specSave } from "./spec";
 export { bundleEmit, ingest } from "./bundle";
 export { adjudicatePrompt, adjudicateSave } from "./adjudicate";

@@ -192,7 +192,21 @@ interface WorktreeMeta {
   composed: string[];
 }
 
-/** A cached worktree per commit sha, reused across runs. */
+/** Cached worktrees unused this long are removed when a new one is created. */
+export const WORKTREE_TTL_MS = 7 * 24 * 3600 * 1000;
+
+function pruneWorktrees(repo: Repo, keep: string): void {
+  const cache = repo.p("worktrees", "_cache");
+  for (const f of fs.readdirSync(cache)) {
+    const key = f.slice(0, -".json".length);
+    if (!f.endsWith(".json") || key === keep || Date.now() - fs.statSync(path.join(cache, f)).mtimeMs < WORKTREE_TTL_MS) continue;
+    repo.git(["worktree", "remove", "--force", path.join(cache, key)], { allowFail: true });
+    fs.rmSync(path.join(cache, key), { recursive: true, force: true });
+    fs.rmSync(path.join(cache, f), { force: true });
+  }
+}
+
+/** A cached worktree per commit sha, reused across runs. The meta file's mtime is its last use. */
 export function ensureWorktree(repo: Repo, sha: string, key = sha): { dir: string; meta: WorktreeMeta; fresh: boolean; saveMeta: () => void } {
   const dir = repo.p("worktrees", "_cache", key);
   const metaFile = repo.p("worktrees", "_cache", `${key}.json`);
@@ -204,6 +218,7 @@ export function ensureWorktree(repo: Repo, sha: string, key = sha): { dir: strin
     repo.git(["worktree", "add", "--detach", "--force", dir, sha]);
     fs.rmSync(metaFile, { force: true });
     fresh = true;
+    pruneWorktrees(repo, key);
   }
   const meta: WorktreeMeta = readJson(metaFile, { setup_done: false, composed: [] });
   // Undo the previous round: our files out, tracked files back to the commit.
@@ -211,6 +226,7 @@ export function ensureWorktree(repo: Repo, sha: string, key = sha): { dir: strin
   meta.composed = [];
   repo.git(["-C", dir, "checkout", "--force", "--detach", sha], { allowFail: true });
   repo.git(["-C", dir, "checkout", "--", "."], { allowFail: true });
+  writeJson(metaFile, meta);
   return { dir, meta, fresh, saveMeta: () => writeJson(metaFile, meta) };
 }
 

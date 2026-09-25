@@ -151,3 +151,25 @@ test("worktrees are cached per commit and reused across runs", () => {
   const cache = fs.readdirSync(path.join(dir, ".test-checker/worktrees/_cache")).filter((d) => !d.endsWith(".json"));
   assert.deepEqual(cache.sort(), [buggy, fixed].sort());
 });
+
+test("a new cached worktree prunes entries unused for a week", () => {
+  const { dir, buggy, fixed } = buildFixtureRepo("off_by_one");
+  const cache = path.join(dir, ".test-checker/worktrees/_cache");
+  const run = (b, f) => {
+    const id = tcheck(dir, ["run", "start", "--mode", "bugfix", "--buggy", b, "--fixed", f, "--json"]).json.run;
+    const target = tcheck(dir, ["target", "add", id, ...TARGET, "--json"]).json.target;
+    dropTests(dir, id, target, { "test_sum_to_1.py": `${IMPORT}def test_a():\n    assert sum_to(3) == 6\n` });
+    tcheck(dir, ["compose", id]);
+    assert.equal(tcheck(dir, ["exec", id]).code, 0);
+  };
+  run(buggy, fixed);
+  const old = new Date(Date.now() - 8 * 24 * 3600 * 1000);
+  fs.utimesSync(path.join(cache, `${buggy}.json`), old, old);
+  writeFiles(dir, { "src/fx/extra.py": "X = 1\n" }); // a new WORKTREE snapshot needs a fresh worktree
+  run(fixed, "WORKTREE");
+  const left = fs.readdirSync(cache).filter((d) => !d.endsWith(".json"));
+  assert.ok(!left.includes(buggy), "stale worktree removed");
+  assert.ok(left.includes(fixed), "recently used worktree kept");
+  assert.equal(left.length, 2);
+  assert.ok(!git(dir, "worktree", "list").includes(buggy), "git forgets it too");
+});

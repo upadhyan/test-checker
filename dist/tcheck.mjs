@@ -1332,6 +1332,16 @@ function loadTarget(repo, runId, targetIdArg) {
   if (!fs10.existsSync(f)) throw usage(`unknown target ${targetIdArg} in run ${runId}`);
   return readJson(f);
 }
+function pruneWorktrees(repo, keep) {
+  const cache = repo.p("worktrees", "_cache");
+  for (const f of fs10.readdirSync(cache)) {
+    const key = f.slice(0, -".json".length);
+    if (!f.endsWith(".json") || key === keep || Date.now() - fs10.statSync(path9.join(cache, f)).mtimeMs < WORKTREE_TTL_MS) continue;
+    repo.git(["worktree", "remove", "--force", path9.join(cache, key)], { allowFail: true });
+    fs10.rmSync(path9.join(cache, key), { recursive: true, force: true });
+    fs10.rmSync(path9.join(cache, f), { force: true });
+  }
+}
 function ensureWorktree(repo, sha, key = sha) {
   const dir = repo.p("worktrees", "_cache", key);
   const metaFile = repo.p("worktrees", "_cache", `${key}.json`);
@@ -1343,12 +1353,14 @@ function ensureWorktree(repo, sha, key = sha) {
     repo.git(["worktree", "add", "--detach", "--force", dir, sha]);
     fs10.rmSync(metaFile, { force: true });
     fresh = true;
+    pruneWorktrees(repo, key);
   }
   const meta = readJson(metaFile, { setup_done: false, composed: [] });
   for (const f of meta.composed) fs10.rmSync(path9.join(dir, f), { force: true });
   meta.composed = [];
   repo.git(["-C", dir, "checkout", "--force", "--detach", sha], { allowFail: true });
   repo.git(["-C", dir, "checkout", "--", "."], { allowFail: true });
+  writeJson(metaFile, meta);
   return { dir, meta, fresh, saveMeta: () => writeJson(metaFile, meta) };
 }
 function words(symbol) {
@@ -1428,7 +1440,7 @@ function compose(repo, runId) {
   writeJson(runDir(repo, runId, "composed.json"), { at: nowIso(), files });
   return { files, missing };
 }
-var LABELS, ERRORS_LABEL, isRoundMeta;
+var LABELS, ERRORS_LABEL, WORKTREE_TTL_MS, isRoundMeta;
 var init_run = __esm({
   "src/run.ts"() {
     "use strict";
@@ -1436,6 +1448,7 @@ var init_run = __esm({
     init_leak();
     LABELS = { bugfix: ["buggy", "fixed"], new: ["current"], audit: ["current"] };
     ERRORS_LABEL = { bugfix: "fixed", new: "current", audit: "current" };
+    WORKTREE_TTL_MS = 7 * 24 * 3600 * 1e3;
     isRoundMeta = (name) => name === "notes.md" || name === "round.json";
   }
 });
@@ -2685,7 +2698,8 @@ __export(backends_exports, {
   blindRun: () => blindRun,
   childEnv: () => childEnv,
   firstHeadless: () => firstHeadless,
-  runBackend: () => runBackend
+  runBackend: () => runBackend,
+  winQuote: () => winQuote
 });
 import { spawn as spawn2 } from "node:child_process";
 import * as fs18 from "node:fs";
@@ -2698,7 +2712,7 @@ function childEnv() {
 }
 function spawnText(cmd, args, opts) {
   return new Promise((resolve3) => {
-    const child = spawn2(cmd, args, { cwd: opts.cwd, env: childEnv(), windowsHide: true, shell: isWin, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn2(cmd, isWin ? args.map(winQuote) : args, { cwd: opts.cwd, env: childEnv(), windowsHide: true, shell: isWin, stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     let timedOut = false;
@@ -2749,10 +2763,12 @@ async function runBackend(backend, prompt, opts = {}) {
         break;
       case "opencode":
         fs18.writeFileSync(path15.join(tmp, "opencode.json"), opencodeConfig());
-        args = ["run", "--agent", "tcheck-blind-writer", "--dir", tmp, ...model.length ? ["-m", ...model] : [], prompt];
+        args = ["run", "--agent", "tcheck-blind-writer", "--dir", tmp, ...model.length ? ["-m", ...model] : []];
+        input = prompt;
         break;
       default:
-        args = ["-p", "--no-tools", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-session", "--offline", ...model.length ? ["--model", ...model] : [], prompt];
+        args = ["-p", "--no-tools", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-session", "--offline", ...model.length ? ["--model", ...model] : []];
+        input = prompt;
     }
     const r = await spawnText(backend, args, { cwd: tmp, input, timeoutSec });
     if (r.timedOut) throw new TcheckError(`${backend} timed out after ${timeoutSec}s`, EXIT.COMMAND);
@@ -2806,7 +2822,7 @@ async function blindRun(repo, bundle, role, opts = {}) {
   const r = ingest(repo, p.payload, text);
   return { ...r, backend, isolation: ISOLATION[backend], payload: p.payload };
 }
-var STRIP;
+var STRIP, winQuote;
 var init_backends = __esm({
   "src/backends.ts"() {
     "use strict";
@@ -2815,6 +2831,7 @@ var init_backends = __esm({
     init_run();
     init_util();
     STRIP = /^(CLAUDECODE|CLAUDE_CODE_(ENTRYPOINT|SESSION_ID|CHILD_SESSION|HOST_SESSION_ID|MESSAGING_SOCKET|MESSAGING_TOKEN|SDK_HAS_HOST_AUTH_REFRESH|SESSION_ATTENDED|EMIT_TOOL_USE_SUMMARIES|REPORT_FINDINGS|TERMINAL_MCP_TOOLS)|CLAUDE_PID|CLAUDE_PROJECT_DIR|CLAUDE_PLUGIN_ROOT|CLAUDE_AGENT_SDK_VERSION|PLUGIN_ROOT|TCHECK_HARNESS|CODEX_THREAD_ID|CODEX_SANDBOX.*)$/;
+    winQuote = (a) => `"${a.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, "$1$1")}"`;
   }
 });
 
@@ -3781,5 +3798,6 @@ export {
   specSave,
   str,
   submitTests,
-  validate
+  validate,
+  winQuote
 };
