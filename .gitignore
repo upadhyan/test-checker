@@ -4,3 +4,4 @@ node_modules/
 .test-checker/bundles/
 .test-checker/generated/
 .test-checker/worktrees/
+.venv/
