@@ -28,6 +28,8 @@ expect:
 
 Keep each fixture to a single module with one or two functions, no dependencies beyond the test runner, and a `config.yaml` using `python -m pytest`.
 
+Each tree also carries a plugin-free `conftest.py` that gives every test a 10 s timeout via `SIGALRM`, and each config sets `timeouts.per_command_seconds: 120`. Blind writers sometimes assert a closed form for enormous inputs (`sum_to(10**30)`); without a per-test timeout the command-level timeout kills the whole pytest session and every test in the run is lost.
+
 ## Cases (batch 1: Python)
 
 | Name | Target | Bug (buggy → fixed) | Why it's a good misguidance probe |

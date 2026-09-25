@@ -3299,13 +3299,13 @@ function counts(cls2) {
   for (const t of cls2.tests) if (t.category in c) c[t.category]++;
   return c;
 }
-async function blindPipeline(repo, fx, backend, log, res) {
+async function blindPipeline(repo, fx, backend, log, res, withIntent = false) {
   const run2 = runStart(repo, { mode: "bugfix", buggy: fx.buggy, fixed: fx.fixed }).id;
   const t = targetAdd(repo, run2, fx.fixture.target, fx.fixture.lines.join("-"));
   contextSet(repo, run2, t.id, path18.join(fx.fixture.dir, "context.json"));
   const opts = backendOpts(repo);
   for (let attempt = 1; ; attempt++) {
-    const p = specPrompt(repo, run2, t.id);
+    const p = specPrompt(repo, run2, t.id, withIntent ? fx.fixture.intent : void 0);
     log(`${fx.fixture.name}: spec (attempt ${attempt})`);
     const out = await runBackend(backend, p.full, opts);
     try {
@@ -3363,14 +3363,14 @@ async function selftest(opts) {
   if (!backend) throw envMissing("selftest needs a headless backend: install claude, codex, opencode or pi, or pass --backend api");
   const names = opts.fixtures?.length ? opts.fixtures : listFixtures();
   if (!names.length) throw envMissing("no fixtures found");
-  log(`selftest: ${names.length} fixture(s) via ${backend}`);
+  log(`selftest: ${names.length} fixture(s) via ${backend}${opts.withIntent ? " (with fixture intent)" : " (paper setting: no stated intent)"}`);
   const results = await Promise.all(
     names.map(async (name) => {
       const fx = buildFixtureRepo(name);
       const repo = new Repo(fx.dir);
       const res = { fixture: name, blind: null, baseline: null, errors: [], repair_rounds: 0, min_effective: fx.fixture.expect?.min_effective_blind ?? 1, leak_clean: true, dir: fx.dir };
       const settle = (p) => p.then((value) => ({ status: "fulfilled", value }), (reason) => ({ status: "rejected", reason }));
-      const b = await settle(blindPipeline(repo, fx, backend, log, res));
+      const b = await settle(blindPipeline(repo, fx, backend, log, res, opts.withIntent));
       const base = await settle(baselinePipeline(repo, fx, backend, log));
       if (b.status === "fulfilled") {
         res.blind = counts(b.value.cls);
@@ -3481,7 +3481,7 @@ var init_commands = __esm({
     });
     register("selftest", async (a) => {
       const { selftest: selftest2 } = await Promise.resolve().then(() => (init_selftest(), selftest_exports));
-      const r = await selftest2({ backend: str(a, "backend"), fixtures: list(a, "fixtures"), log: bool(a, "quiet") ? () => {
+      const r = await selftest2({ backend: str(a, "backend"), fixtures: list(a, "fixtures"), withIntent: bool(a, "with-intent"), log: bool(a, "quiet") ? () => {
       } : void 0 });
       return { data: r, human: r.table, code: r.code };
     });
@@ -3684,7 +3684,7 @@ var init_cli = __esm({
     init_dirty();
     init_lib();
     MULTI = /* @__PURE__ */ new Set(["existing", "tests", "fixtures", "use"]);
-    BOOL = /* @__PURE__ */ new Set(["json", "quiet", "force", "keep", "all-accepted", "include-neutral", "help"]);
+    BOOL = /* @__PURE__ */ new Set(["json", "quiet", "force", "keep", "all-accepted", "include-neutral", "help", "with-intent"]);
     str = (a, k) => typeof a.flags[k] === "string" ? a.flags[k] : void 0;
     list = (a, k) => Array.isArray(a.flags[k]) ? a.flags[k] : typeof a.flags[k] === "string" ? [a.flags[k]] : [];
     bool = (a, k) => a.flags[k] === true;

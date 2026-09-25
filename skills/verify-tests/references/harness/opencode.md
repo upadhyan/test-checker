@@ -20,3 +20,7 @@ The plugin's `tool.execute.before` handler does three things:
 - **handoff-guard** on `task` for the blind agents: the prompt must be a frozen payload;
 - **protect-tests** on edit and write tools;
 - **stop-gate** at end of turn, following `gate` in config.
+
+If the plugin logs that it could not load zod or `@opencode-ai/plugin`, the three role tools aren't registered. In that case run the blind roles with `tcheck blind-run <bundle-id> --role writer --backend <claude|codex|pi>`, and the spec-extractor and adjudicator in-session with `tcheck spec save` / `tcheck adjudicate save` (see `generic.md`).
+
+TODO (live check pending): the hook shapes follow the `@opencode-ai/plugin` 1.15 types, but no live OpenCode session has run this yet. On the build machine OpenCode had no provider that allows headless use.

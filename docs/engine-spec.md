@@ -52,14 +52,14 @@ These hold for every code path. Tests in `tests/` should cover each one.
 │   │   ├── spec.raw.md       # full spec-extractor output
 │   │   ├── spec.md           # extracted <spec> (user-editable via `spec edit`)
 │   │   └── analysis.md       # extracted <analysis>
-│   ├── exec/<round>/<rev-label>/<rerun>/junit/…   # raw results
+│   ├── exec/<n>/<rev-label>/<rerun>/junit.xml|…  # raw results; <n> counts exec invocations
 │   ├── results.json          # merged per-test outcomes
 │   └── classification.json
 ├── bundles/<bundle>.json     # ignored, frozen
 ├── payloads/<payload>.md     # ignored, frozen rendered prompts
 ├── payloads/index.json       # payload → {role, bundle, run, target, sha256, consumed}
 ├── generated/<run>/<target>/round-<n>/…     # ignored, submitted test files
-└── worktrees/<run>/<label>/  # ignored, git worktrees
+└── worktrees/_cache/<sha>/   # ignored, git worktrees, one per commit, shared by runs (§8.1)
 ```
 
 **Ids:**
@@ -81,11 +81,11 @@ Precedence:
 3. heuristics;
 4. `unknown`.
 
-| Harness | Heuristic (**VERIFY** each) |
+| Harness | Heuristic |
 |---|---|
-| `claude-code` | `CLAUDECODE=1` or `CLAUDE_PLUGIN_ROOT` set |
-| `cowork` | `claude-code` signals plus a Cowork marker (e.g. entrypoint env var). Otherwise treat as `claude-code`. |
-| `codex` | `PLUGIN_ROOT` set without Claude vars, or `CODEX_*` sandbox vars |
+| `claude-code` | `CLAUDECODE=1` (confirmed, Claude Code 2.1), or `CLAUDE_PLUGIN_ROOT` set without Codex markers |
+| `cowork` | `claude-code` signals plus `CLAUDE_CODE_ENTRYPOINT` containing `cowork` (**VERIFY**: the marker is unconfirmed). Otherwise treated as `claude-code`. |
+| `codex` | `PLUGIN_ROOT` set, or any `CODEX_*` variable other than `CODEX_HOME`. Codex gives plugin hooks both `PLUGIN_ROOT` and `CLAUDE_PLUGIN_ROOT` (Codex hooks docs), so Codex markers win over a bare `CLAUDE_PLUGIN_ROOT`. Which `CODEX_*` variables reach shell-tool processes is **VERIFY 7** (open). |
 | `opencode` | via `TCHECK_HARNESS` only |
 | `pi` | via `TCHECK_HARNESS` only |
 
@@ -128,7 +128,7 @@ Global flags: `--json`, `--root <dir>`, `--harness <name>`, `--quiet`.
 |---|---|
 | `env` | §4 |
 | `init [--language L] [--framework F] [--force]` | Writes `.test-checker/config.yaml` from the closest `examples/config.*.yaml`. Creates `.test-checker/` and a `.gitignore` inside it covering the ignored paths. Refuses to overwrite without `--force`. |
-| `doctor` | Validates config against `config.schema.json`. In a scratch worktree, writes a trivial passing and a trivial failing test (language templates: see below), runs `setup` / `compile` / `run`, and checks that JUnit is produced with 1 pass + 1 fail. Prints concrete fixes. |
+| `doctor [--use PATHS…]` | Validates config against `config.schema.json`. In a scratch worktree, writes a trivial passing and a trivial failing test (language templates: see below), runs `setup` / `compile` / `run`, and checks that JUnit is produced with 1 pass + 1 fail. Prints concrete fixes. |
 | `status` | Dirty files, open runs, unresolved verdicts, gate mode |
 | `scope [--since <rev>]` | JSON list of changed files matching `source_globs` (vs `HEAD`, or `--since`), with hunks `{file, ranges:[[a,b]]}` and whether each is already verified |
 
@@ -145,7 +145,7 @@ Global flags: `--json`, `--root <dir>`, `--harness <name>`, `--quiet`.
 | `spec save <run> <target> --from FILE` | Parses `<analysis>` and `<spec>` (for the scaffold variant, Part 3 if tags are absent). Runs the leak check on the spec, then saves. Exit 2 if the spec quotes the body: the agent must re-run or edit the spec. |
 | `spec show <run> <target>` / `spec edit <run> <target> --from FILE` | Print the spec, or replace it (re-leak-checked). Editing invalidates existing bundles for that target. |
 | `bundle build <run> <target>` | Assembles focal + spec + context + meta and validates the schema and leak check. Freezes to `bundles/<id>.json`. Prints the bundle id. |
-| `bundle emit <bundle> --role writer\|repair [--run RUN]` | Renders the payload (§7) and prints it to stdout, exactly. For repair, requires the latest exec of that target to have repairable errors (§8.4). |
+| `bundle emit <bundle> --role writer\|repair [--run RUN] [--via tool\|text]` | Renders the payload (§7) and prints it to stdout, exactly. `--via` picks `submit_via_tool` (default, native subagents) or `submit_via_text`. For repair, requires the latest exec of that target to have repairable errors (§8.4) and fewer than `refine_rounds` repair rounds so far. Refuses a bundle whose spec was edited after it was built. |
 | `blind-run <bundle> --role writer\|repair [--run RUN] [--backend B]` | Out-of-process path (§11). Renders the payload internally, runs the backend, then ingests. Never prints the payload. |
 | `ingest <payload> --from FILE\|-` | Parses `FILE:` + fenced blocks (and `NOTES:`) from text-returning backends, then stores them like `submit_tests` (§9). |
 | `compose <run>` | Resolves the latest submitted round per target to final paths (`test_dir`, `test_file_pattern`). Writes them to `runs/<run>/composed/` and records the file map. |
@@ -156,7 +156,7 @@ Global flags: `--json`, `--root <dir>`, `--harness <name>`, `--quiet`.
 | `adjudicate save <run> <test> --from FILE` | Parses `<verdict>`, `<spec_basis>` and `<reason>`. Rejects `code-wrong` with `spec_basis: none` by downgrading it to `spec-ambiguous`, with a warning. |
 | `adjudicate override <run> <test> --verdict V --reason TEXT` | Records a user decision. Takes precedence over the model verdict. |
 | `report <run>` | §12 |
-| `promote <run> [--tests IDS…] [--all-accepted]` | Copies accepted tests (effective, plus neutral if chosen) to `promote_dir`, rewriting paths per pattern. Registers them as protected. Updates the verified snapshot for the run's target files. Refuses if unresolved `code-wrong` or `spec-ambiguous` verdicts exist, unless `--force`. |
+| `promote <run> [--tests IDS…] [--all-accepted] [--force]` | Copies accepted tests (effective, plus neutral if chosen) to `promote_dir`, rewriting paths per pattern. Registers them as protected. Updates the verified snapshot for the run's target files (the blob that was tested: fixed side in bugfix, the current snapshot otherwise). Refuses if unresolved `code-wrong` or `spec-ambiguous` verdicts exist, unless `--force`. Promotion is **per file**, because test files can't be sliced language-agnostically: a file qualifies only if every test in it is acceptable (bugfix: effective or neutral; new/audit: accepted; none quarantined) and it holds a selected test (effective/accepted by default, any acceptable test with `--all-accepted`, or the ids in `--tests`). The report names files that don't qualify and why; after a `test-wrong` verdict the agent may delete the bad test from the generated file and re-run `compose`/`exec`. |
 | `waive <path…> --reason TEXT` | Marks the current content hash of the given files as verified without a run (ledger `waived`) |
 
 ### Integration entry points
@@ -185,9 +185,12 @@ Applied to:
 
 **Significant body lines.** Normalised body lines of length ≥ 12, excluding:
 
-- the signature lines (the first line of the range, plus continuation lines up to the body opener);
+- the signature lines: leading decorator, attribute and comment lines, then the declaration up to the line where its brackets balance, plus a lone `{` on the next line (Allman style);
 - lines that are only brackets or keywords (`}`, `end`, `else:`, `try:`, `return`, `pass`, …);
-- the 200 most common lines across the repo's source files. This is computed once per run and stops boilerplate like `return result` from triggering. Cache it in `runs/<run>/common-lines.json`.
+- comment and docstring lines (`#`, `//`, `/*`, `*`, `--`, `;;`, `"""…"""`): they describe intent, not implementation, and specs legitimately reuse their wording;
+- the 200 most common lines across the repo's source files **that occur in at least two files** (a line unique to one file is never boilerplate). This is computed once per run and stops boilerplate like `return result` from triggering. Cache it in `runs/<run>/common-lines.json`.
+
+The shingle test also ignores comment and docstring lines.
 
 **Two tests:**
 
@@ -214,7 +217,8 @@ On failure, report the offending lines with their locations.
 - **Rendering:**
   - Unknown `{{var}}` is an error.
   - `{{#if x}}` blocks are dropped when `x` is empty.
-  - Variant blocks are chosen from config.
+  - Variant blocks are chosen from config; `spec.variant: auto` selects `reasoning` (every harness model is a reasoning model; `scaffold` is for base models, paper §8.1).
+  - HTML comments (`<!-- [tc] … -->`) are stripped from the rendered prompt.
   - `submit_via_tool` is set when the consumer is a native subagent with the MCP tool (Claude Code, OpenCode). `submit_via_text` is set for `blind-run` backends and the Pi extension.
 
 ## 8. Execution
@@ -229,7 +233,8 @@ On failure, report the offending lines with their locations.
   5. Store the commit under `refs/tcheck/<run>/worktree`.
 
   This includes untracked files.
-- **Worktrees.** For each revision label (`buggy`, `fixed`, `current`, `mutant-<id>`), run `git worktree add --detach .test-checker/worktrees/<run>/<label> <commit>`. Reuse a worktree across runs when the commit is unchanged (keyed by commit sha under `worktrees/_cache/<sha>`). Remove per-run worktrees with `git worktree remove` when the run is reported, unless `--keep`.
+- **Worktrees.** Each commit gets one worktree, `git worktree add --detach .test-checker/worktrees/_cache/<sha> <sha>`, shared by every run and label that uses that commit (mutants use `_cache/<sha>-mutant`). Before each use the engine removes the files it composed last time and runs `git checkout -- .`; untracked build output (e.g. `node_modules` from `commands.setup`) is kept, and `setup` runs once per worktree. Cached worktrees are not removed on report; delete `.test-checker/worktrees/` to reclaim space.
+- **Re-snapshot.** On every `exec` after the first, labels given as `WORKTREE` are snapshotted again (ledger `revision_refreshed`), so a code fix made after a `code-wrong` verdict is what gets tested.
 - **Spec-source revision:**
 
   | Mode | Revision |
@@ -259,9 +264,9 @@ Copy composed test files into each worktree at their final paths. Run `commands.
    - `error` (`<error>`);
    - `skipped`.
 
-   A test file that produced no testcases at all while its command failed counts as a load error for that file.
+   A test file that produced no testcases at all while its command failed counts as a load error for that file, unless another file's own repairable testcase error explains the abort (pytest stops the whole session on one bad file).
 3. **Flake rule.** A test whose outcome differs across the reruns of the same label is `flaky`. It's excluded from classification and listed in the report.
-4. **Timeouts.** `per_command_seconds` kills the process tree. Tests absent from the XML after a timeout are `error: timeout`.
+4. **Timeouts.** `per_command_seconds` kills the process tree. Tests absent from the XML after a timeout are `error: timeout`, and the remaining reruns of that label are skipped (they would hang the same way). A command-level timeout loses every result of the run, so a per-test timeout inside the runner is strongly preferred: commands may use `{per_test_seconds}` (e.g. `--timeout={per_test_seconds}` with pytest-timeout, `-timeout` for go test, `@Timeout` defaults for JUnit). The selftest fixtures ship a zero-dependency `conftest.py` that does this with `SIGALRM`. Found during the live selftest: blind tests of `sum_to` asserted the closed form for `n = 10**30`, which a loop implementation never finishes.
 
 ### 8.4 Repairable errors
 
@@ -311,6 +316,8 @@ Always excluded: every `<failure>`, and any `<error>` not matching a pattern (fo
 
 Queue for adjudication: `misguided` (against the fixed revision) and `broken` (against the fixed revision).
 
+In every mode: a test whose outcome is `flaky` or `skipped` on any label gets that category; a test whose fixed/current outcome is a repairable error is `unrepairable` (dropped, not queued: repair rounds are over by the time you classify). A test missing from a label counts as a fail and is shown as `timeout`, `compile-error` or `missing`.
+
 **new:**
 
 - pass on current → `accepted`;
@@ -333,9 +340,15 @@ Queue for adjudication: `misguided` (against the fixed revision) and `broken` (a
 
 ## 9. MCP server (`tcheck mcp`)
 
-Stdio JSON-RPC, protocol version as current Claude Code requires (**VERIFY**). Declared inline in `.claude-plugin/plugin.json` under `mcpServers.tcheck`. There is no `.mcp.json`, so developing in this repo doesn't register it as a project server. Repo root per §3; in Claude Code, `CLAUDE_PROJECT_DIR` is expected to be set for plugin MCP servers (**VERIFY**; otherwise use cwd).
+Stdio JSON-RPC (newline-delimited). `initialize` echoes the client's `protocolVersion` when it is one we know (`2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`), else the newest; Claude Code 2.1.282 connected with this. Declared inline in `.claude-plugin/plugin.json` under `mcpServers.tcheck`. There is no `.mcp.json`, so developing in this repo doesn't register it as a project server. Repo root per §3.
 
-**Tool naming in agent frontmatter.** Claude Code exposes plugin MCP tools as `mcp__plugin_<plugin>_<server>__<tool>`, e.g. `mcp__plugin_test-checker_tcheck__submit_tests`. **VERIFY** the exact form with `/mcp` after install. The `tools:` line in each `agents/*.md` must match exactly, or the subagent gets zero tools and won't launch.
+**Confirmed in a live Claude Code 2.1.282 session** (`claude -p --plugin-dir .`, stream-json init event and `TCHECK_DEBUG_LOG` traces):
+
+- **VERIFY 1:** the server appears as `plugin:test-checker:tcheck`, and its tools as `mcp__plugin_test-checker_tcheck__submit_tests`, `mcp__plugin_test-checker_tcheck__save_spec` and `mcp__plugin_test-checker_tcheck__save_verdict`. These match the `tools:` lines in `agents/*.md` exactly, and the subagents register as `test-checker:tcheck-spec-extractor`, `test-checker:tcheck-blind-writer`, `test-checker:tcheck-repair` and `test-checker:tcheck-adjudicator`.
+- **VERIFY 2:** the plugin MCP server process has `CLAUDE_PROJECT_DIR` set to the project root (and its cwd is the project root too).
+- **VERIFY 3:** the PreToolUse hook input for a subagent launch has `tool_name: "Agent"` and `tool_input: {subagent_type: "test-checker:tcheck-blind-writer", prompt, description, run_in_background}`. The hook matcher `Agent|Task` covers it.
+
+`TCHECK_DEBUG_LOG=<file>` makes hooks and the MCP server append their raw inputs and startup environment to that file, for re-checking these after harness upgrades.
 
 | Tool | Input | Behaviour | Returns |
 |---|---|---|---|
@@ -349,7 +362,9 @@ Tool descriptions must say these are for test-checker's internal roles only.
 
 `ledger.jsonl` holds one JSON object per line, `{ts, run?, type, …}`. Types:
 
+- `initialized` (`init`)
 - `run_started`
+- `revision_refreshed` (a `WORKTREE` label re-snapshotted by `exec`)
 - `target_added`
 - `context_set`
 - `spec_saved`
@@ -389,15 +404,19 @@ Files committed without verification stop being dirty. That's accepted in v1 and
 
 Each backend receives the rendered payload with `submit_via_text` and returns text. The engine then runs `ingest`.
 
-| Backend | Invocation (**VERIFY** flags per CLI version) | Isolation |
-|---|---|---|
-| `api` (opt-in only) | HTTPS POST: Anthropic Messages API or OpenAI Responses API; no tools; `blind.api.model`; key from `blind.api.key_env`. For users who have a key. Never a default. | strong |
-| `codex` | `codex exec --sandbox read-only --skip-git-repo-check -C <tmpdir> -` with the prompt on stdin | medium |
-| `claude` | `claude -p` in `<tmpdir>`, with all built-in tools disallowed and no MCP config | medium to strong |
-| `opencode` | `opencode run --agent tcheck-blind-writer` in `<tmpdir>` | strong if the agent's permissions are all deny |
-| `pi` | `pi -p` in `<tmpdir>` with tools disabled | medium to strong |
+Confirmed flags (VERIFY 4), checked against claude 2.1.282, codex-cli 0.147.0, opencode 1.15.13 and pi 0.84.1:
 
-**Temp dir.** `<tmpdir>` is created under the OS temp root, never inside the repo, and contains only `PROMPT.md`. It's deleted afterwards. The prompt never includes the repo path.
+| Backend | Invocation | Isolation | Live status |
+|---|---|---|---|
+| `api` (opt-in only) | HTTPS POST: Anthropic Messages API (`anthropic-version: 2023-06-01`) or OpenAI Responses API; no tools; `blind.api.model`; key from `blind.api.key_env`. For users who have a key. Never a default. | strong | not exercised (no key, by design) |
+| `claude` | `claude -p --tools "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' --setting-sources "" --disable-slash-commands --no-session-persistence --output-format text [--model M]`, prompt on stdin. `--bare` would also skip CLAUDE.md auto-discovery but forces API-key auth, so it breaks subscription login and is not used. | medium to strong (user CLAUDE.md is still loaded; no tools, so nothing can be read) | confirmed on a subscription login |
+| `codex` | `codex exec --sandbox read-only --skip-git-repo-check --ephemeral --color never -C <tmpdir> -o <file> [-m M] -`, prompt on stdin, answer read from the `-o` file | medium | flags accepted; the run on this machine was refused because the configured model needs a newer Codex CLI |
+| `opencode` | `opencode run --agent tcheck-blind-writer --dir <tmpdir> [-m M] "<prompt>"`, with a temp `opencode.json` in `<tmpdir>` defining that agent with every permission `deny` and `tools: {"*": false}` | strong | flags accepted; no usable provider on this machine (OpenCode's free tier refuses headless use) |
+| `pi` | `pi -p --no-tools --no-extensions --no-skills --no-prompt-templates --no-context-files --no-session --offline [--model M] "<prompt>"` | strong (no tools, no context files) | confirmed |
+
+Harness session variables (`CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`, `CLAUDE_PROJECT_DIR`, `PLUGIN_ROOT`, `CODEX_THREAD_ID`, …) are stripped from the child environment so a nested CLI doesn't think it runs inside the caller's session.
+
+**Temp dir.** `<tmpdir>` is created under the OS temp root, never inside the repo, and contains only `PROMPT.md` (plus the agent-only `opencode.json` for that backend). It's deleted afterwards. The prompt never includes the repo path.
 
 **Backend `auto`:**
 
@@ -457,7 +476,7 @@ Every hook records `hooks_seen_at`, and must finish in < 300 ms in the common pa
 | Harness | deny | block | warn | context |
 |---|---|---|---|---|
 | Claude Code | stdout `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":R}}`, exit 0 | `{"decision":"block","reason":R}` | `{"systemMessage":M}` | `{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":T}}` |
-| Codex | Same JSON (Codex accepts `permissionDecision: deny` and `decision: block`). **VERIFY** `systemMessage` and `additionalContext` support; fall back to stderr + exit 0. | | | |
+| Codex | Same JSON. Per the Codex hooks docs (VERIFY 6, docs-confirmed, not yet live): PreToolUse honours `permissionDecision: deny` (and legacy `decision: block`), and `systemMessage` / `additionalContext` are honoured inside `hookSpecificOutput`. File edits arrive as `tool_name: "apply_patch"` with `tool_input: {"command": "<patch>"}`; protect-tests reads the `*** … File:` headers from any string in the input. | | | |
 | OpenCode | the integration throws an Error with the reason from `tool.execute.before` | the integration injects a follow-up message | toast/log | system prompt addition |
 | Pi | the `tool_call` handler returns its block result | the `agent_end` handler queues a follow-up user message | notify | `before_agent_start` system prompt addition |
 
@@ -472,7 +491,21 @@ Every hook records `hooks_seen_at`, and must finish in < 300 ms in the common pa
 3. Run a **baseline** with `code-aware-baseline.md` through the same backend.
 4. Print a table: fixture × {blind, baseline} × {effective, misguided, broken, neutral}, plus pass/fail against the criteria in `fixtures-spec.md`.
 
-It must not require any harness session. The model calls go through the backend.
+It must not require any harness session. The model calls go through the backend. Fixtures run in parallel; within a fixture the blind and baseline runs are sequential (they share cached worktrees). The spec role gets one retry if its output quotes the body or misses the format.
+
+`--with-intent` passes each fixture's `intent` to the spec prompt as the developer's stated intent (like `spec prompt --intent`). The default is the paper's setting, with no stated intent.
+
+**First live result** (claude backend, paper setting, 2026-09-25):
+
+| fixture | blind eff / mis / broken / neutral | baseline eff / mis / broken / neutral |
+|---|---|---|
+| off_by_one | 13 / 0 / 4 / 20 | 0 / 7 / 0 / 7 |
+| stale_state | 9 / 0 / 0 / 8 | 0 / 1 / 0 / 7 |
+| wrong_operator | 8 / 0 / 17 / 13 | 8 / 0 / 0 / 6 |
+| boundary | 0 / 7 / 3 / 34 | 0 / 5 / 0 / 10 |
+| null_guard | 0 / 9 / 47 / 20 | 0 / 3 / 0 / 19 |
+
+Criteria 1 and 4 passed everywhere; criterion 2 failed on `boundary` and `null_guard`; criterion 3 warned (16 vs 16). Both failures are the paper's known misguidance channel, not engine faults. With the spec derived from the buggy code and no stated intent, the extractor adopted the bug as the convention: a half-open `[lo, hi)` for `in_range`, and `""` for blank names in `normalize_name`. The blind tests then enshrined it. It also over-specified "robustness" (name particles, Roman numerals, `TypeError`s), which shows up as broken tests for adjudication.
 
 ## 15. OpenCode and Pi integrations (thin code, built with the engine)
 
@@ -481,16 +514,39 @@ It must not require any harness session. The model calls go through the backend.
 - **`config` hook:**
   - adds `skills` path `../../skills`;
   - registers the four agents from `agents/*.md` (body only) as `mode: "subagent"`, `hidden: true`, with every built-in permission `deny`, and allows only the matching plugin tool.
-- **Tools:** registers `tcheck_submit_tests`, `tcheck_save_spec` and `tcheck_save_verdict`, backed by the same functions as the MCP tools.
+- **Tools:** registers `tcheck_submit_tests`, `tcheck_save_spec` and `tcheck_save_verdict`, backed by the same functions as the MCP tools (`callTool`). OpenCode tool args must be Zod schemas; the package ships no dependencies, so the plugin resolves Zod at runtime from `@opencode-ai/plugin` (or `zod`) and, if neither resolves, logs that the role tools are unavailable and the skill falls back to `tcheck blind-run`.
 - **`shell.env`:** sets `TCHECK_HARNESS=opencode`.
-- **`tool.execute.before`:** handoff-guard (on `task`) and protect-tests.
-- **End of turn** (`session.idle` or equivalent, **VERIFY**): stop-gate.
-- **Session start:** context via the system transform hook.
+- **`tool.execute.before`:** handoff-guard (on `task`, reading `args.subagent_type` / `args.prompt`) and protect-tests (on `edit`, `write`, `patch`, `multiedit`); a deny throws an Error with the reason.
+- **End of turn:** the `event` hook on `session.idle` runs stop-gate. A `block` sends one follow-up prompt through `client.session.prompt`; while the files stay dirty, later idles only toast (loop guard).
+- **Session start:** context via `experimental.chat.system.transform` (`output.system.push`).
+
+Hook shapes were checked against `@opencode-ai/plugin` 1.15.13 type definitions (VERIFY 8, typed but not yet exercised in a live OpenCode session with a working provider).
 
 **`pi-extension/index.mjs`** does the following:
 
 - sets `process.env.TCHECK_HARNESS = "pi"`;
-- registers the tools `tcheck_spec`, `tcheck_blind_generate`, `tcheck_blind_repair` and `tcheck_adjudicate`. Each renders its payload, calls the model with **no tools** through Pi's model API (**VERIFY** the extension-accessible completion API; fallback: the `pi` headless backend), and saves the result via the engine;
-- `tool_call`: protect-tests;
-- `agent_end`: stop-gate;
-- `before_agent_start`: session context.
+- registers the tools `tcheck_spec {run, target, intent?}`, `tcheck_blind_generate {bundle_id, run?}`, `tcheck_blind_repair {bundle_id, run?}` and `tcheck_adjudicate {run, test_id}`. Each renders its payload, calls the model with **no tools**, and saves the result via the engine. VERIFY 9 (confirmed against pi 0.84 docs and `examples/extensions/summarize.ts`): `ctx.modelRegistry.complete(model, {messages})` is the extension-accessible tool-less completion. The model is `blind.model` (`provider/id`) if set, else `ctx.model`; fallback: the `pi` headless backend. Live-checked: pi 0.84.1 loads the extension and lists all four tools;
+- `tool_call`: protect-tests on `edit` / `write` (returns `{block: true, reason}`);
+- `agent_end`: stop-gate; a `block` queues one `sendUserMessage(reason, {deliverAs: "followUp"})`, then only notifies while files stay dirty;
+- `before_agent_start`: session context appended to `event.systemPrompt`.
+
+## Open items
+
+Status of every **VERIFY** item and of known gaps after the first build (2026-09-25). "Docs-confirmed" means checked against the harness's published docs or type definitions but not yet exercised live.
+
+| Item | Status |
+|---|---|
+| VERIFY 1: plugin MCP tool names | **Confirmed live** (Claude Code 2.1.282), §9. |
+| VERIFY 2: `CLAUDE_PROJECT_DIR` for the plugin MCP server | **Confirmed live**, §9. |
+| VERIFY 3: `subagent_type` in the Agent PreToolUse input | **Confirmed live**, §9. |
+| VERIFY 4: headless flags for `claude -p` and `codex exec` | **Confirmed** for `claude` and `pi` (live). `codex` flags accepted, but the live run was blocked by the local Codex CLI being too old for its configured model. `opencode` flags accepted, but no headless-capable provider was configured. §11. |
+| VERIFY 5: `${CLAUDE_PLUGIN_ROOT}` in Codex hook commands | Docs-confirmed: Codex sets `PLUGIN_ROOT` and `CLAUDE_PLUGIN_ROOT` as env vars and the shell expands them (POSIX). Open: a live Codex session, and Windows (`cmd` does not expand `${…}`). |
+| VERIFY 6: Codex edit tool name and output fields | Docs-confirmed (`apply_patch` with `{command}`, `permissionDecision`, `systemMessage`, `additionalContext`), §13. Open: live check. |
+| VERIFY 7: Codex detection env vars for shell-tool processes | **Open.** Heuristic: `PLUGIN_ROOT` or any `CODEX_*` (not `CODEX_HOME`). `TCHECK_HARNESS=codex` overrides. |
+| VERIFY 8: OpenCode end-of-turn event and single-tool agents | Typed against `@opencode-ai/plugin` 1.15.13 (`session.idle` via `event`, `tools: {"*": false, <tool>: true}`, permissions `deny`). Open: a live OpenCode session. Also open: whether `config.skills.paths` is the key OpenCode reads, and whether plugins can import `@opencode-ai/plugin`/`zod`. |
+| VERIFY 9: Pi tool-less model call | **Confirmed** from the pi 0.84 docs (`ctx.modelRegistry.complete`). The extension loads live in pi 0.84.1 and registers its four tools; an end-to-end Pi loop has not been run. |
+| Cowork marker (§4) | Open. |
+| Windows | Untested. Paths use `node:path` and commands go through `cmd /c`, but the `opencode`/`pi` backends pass the prompt as an argument, which `shell: true` on Windows does not quote. |
+| Worktree cache growth | Cached worktrees are never pruned automatically (§8.1). |
+| Prompt suggestion (not applied) | `blind-write.md` could add "keep each test fast; avoid inputs so large the implementation may not finish", after the `n = 10**30` finding (§8.3). Prompt wording is research-derived, so this waits for the owner's decision. |
+| Selftest criterion 2 in the paper setting | Fails on `boundary` and `null_guard` (§14); `--with-intent` has not been run yet. |

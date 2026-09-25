@@ -4,7 +4,7 @@
 
 **Blocked by:** 15 — Hooks with Claude Code output, 18 — `codex`, `opencode`, `pi`, opt-in `api` backends
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Extension imports cleanly
 - [ ] VERIFY 9 confirmed or TODO left

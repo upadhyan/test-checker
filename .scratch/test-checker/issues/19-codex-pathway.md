@@ -4,6 +4,6 @@
 
 **Blocked by:** 15 — Hooks with Claude Code output, 18 — `codex`, `opencode`, `pi`, opt-in `api` backends
 
-**Status:** ready-for-agent
+**Status:** done (code); live check pending, see engine-spec Open items
 
 - [ ] VERIFY 5–7 confirmed or listed as open items

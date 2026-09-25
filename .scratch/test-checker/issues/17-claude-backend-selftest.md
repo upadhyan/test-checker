@@ -4,7 +4,7 @@
 
 **Blocked by:** 09 — Remaining four fixtures, 13 — Adjudication, report and promote
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Exact `claude -p` flags recorded in §11
 - [ ] Selftest prints criteria pass/fail

@@ -14,7 +14,7 @@ export interface Args {
 /** Flags that take several values (until the next `--flag`). */
 const MULTI = new Set(["existing", "tests", "fixtures", "use"]);
 /** Flags that never take a value. */
-const BOOL = new Set(["json", "quiet", "force", "keep", "all-accepted", "include-neutral", "help"]);
+const BOOL = new Set(["json", "quiet", "force", "keep", "all-accepted", "include-neutral", "help", "with-intent"]);
 
 export function parseArgs(argv: string[]): Args {
   const a: Args = { _: [], flags: {} };

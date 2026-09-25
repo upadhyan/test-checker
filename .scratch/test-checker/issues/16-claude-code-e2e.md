@@ -4,7 +4,7 @@
 
 **Blocked by:** 14 — MCP server, 15 — Hooks with Claude Code output
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] VERIFY 1–3 recorded in engine-spec
 - [ ] Subagents launch with their tool

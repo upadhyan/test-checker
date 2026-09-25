@@ -47,7 +47,7 @@ register("blind-run", async (a) => {
 
 register("selftest", async (a) => {
   const { selftest } = await import("./selftest");
-  const r = await selftest({ backend: str(a, "backend"), fixtures: list(a, "fixtures"), log: bool(a, "quiet") ? () => {} : undefined });
+  const r = await selftest({ backend: str(a, "backend"), fixtures: list(a, "fixtures"), withIntent: bool(a, "with-intent"), log: bool(a, "quiet") ? () => {} : undefined });
   return { data: r, human: r.table, code: r.code };
 });
 

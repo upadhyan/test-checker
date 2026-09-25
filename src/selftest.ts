@@ -33,14 +33,14 @@ function counts(cls: { tests: { category: string }[] }): Counts {
   return c;
 }
 
-async function blindPipeline(repo: Repo, fx: ReturnType<typeof buildFixtureRepo>, backend: Backend, log: (s: string) => void, res: FixtureResult) {
+async function blindPipeline(repo: Repo, fx: ReturnType<typeof buildFixtureRepo>, backend: Backend, log: (s: string) => void, res: FixtureResult, withIntent = false) {
   const run = runStart(repo, { mode: "bugfix", buggy: fx.buggy, fixed: fx.fixed }).id;
   const t = targetAdd(repo, run, fx.fixture.target, fx.fixture.lines.join("-"));
   contextSet(repo, run, t.id, path.join(fx.fixture.dir, "context.json"));
   const opts = backendOpts(repo);
   // Spec: one retry if the output quotes the body or misses the format.
   for (let attempt = 1; ; attempt++) {
-    const p = specPrompt(repo, run, t.id);
+    const p = specPrompt(repo, run, t.id, withIntent ? fx.fixture.intent : undefined);
     log(`${fx.fixture.name}: spec (attempt ${attempt})`);
     const out = await runBackend(backend, p.full, opts);
     try {
@@ -96,13 +96,13 @@ function leakClean(repo: Repo, blindRunId: string): boolean {
   return files.every((f) => checkLeak(fs.readFileSync(f, "utf8"), targets, { ...opts, threshold: 1 }).findings.length === 0);
 }
 
-export async function selftest(opts: { backend?: string; fixtures?: string[]; log?: (s: string) => void }) {
+export async function selftest(opts: { backend?: string; fixtures?: string[]; withIntent?: boolean; log?: (s: string) => void }) {
   const log = opts.log ?? ((s: string) => process.stderr.write(s + "\n"));
   const backend = (opts.backend ?? firstHeadless()) as Backend | null;
   if (!backend) throw envMissing("selftest needs a headless backend: install claude, codex, opencode or pi, or pass --backend api");
   const names = opts.fixtures?.length ? opts.fixtures : listFixtures();
   if (!names.length) throw envMissing("no fixtures found");
-  log(`selftest: ${names.length} fixture(s) via ${backend}`);
+  log(`selftest: ${names.length} fixture(s) via ${backend}${opts.withIntent ? " (with fixture intent)" : " (paper setting: no stated intent)"}`);
 
   const results = await Promise.all(
     names.map(async (name): Promise<FixtureResult> => {
@@ -111,7 +111,7 @@ export async function selftest(opts: { backend?: string; fixtures?: string[]; lo
       const res: FixtureResult = { fixture: name, blind: null, baseline: null, errors: [], repair_rounds: 0, min_effective: fx.fixture.expect?.min_effective_blind ?? 1, leak_clean: true, dir: fx.dir };
       // Sequential per fixture: both runs share the repo's cached worktrees. Fixtures run in parallel.
       const settle = <T>(p: Promise<T>) => p.then((value) => ({ status: "fulfilled" as const, value }), (reason) => ({ status: "rejected" as const, reason }));
-      const b = await settle(blindPipeline(repo, fx, backend, log, res));
+      const b = await settle(blindPipeline(repo, fx, backend, log, res, opts.withIntent));
       const base = await settle(baselinePipeline(repo, fx, backend, log));
       if (b.status === "fulfilled") {
         res.blind = counts(b.value.cls);

@@ -21,7 +21,8 @@ commands:                         # run from the repo (or worktree) root
   # Placeholders: {files} space-separated generated test paths,
   #               {junit} path the runner must write JUnit XML to (a file, or a directory of
   #                       XML files; the engine accepts both),
-  #               {test_dir}, {root}
+  #               {test_dir}, {root}, {per_test_seconds} (timeouts.per_test_seconds, for the runner's
+  #               own per-test timeout, e.g. pytest-timeout's --timeout={per_test_seconds})
   setup: null                     # optional, run once per worktree (e.g. "npm ci")
   compile: null                   # optional compile or type-check step
   run: "python -m pytest {files} --junitxml={junit} -q -p no:cacheprovider"
@@ -31,8 +32,9 @@ results:
   format: junit-xml               # only supported format in v1
 
 timeouts:
-  per_test_seconds: 30            # enforced via the runner where possible, else per command
-  per_command_seconds: 600
+  per_test_seconds: 30            # only enforced if commands.run passes {per_test_seconds} to the runner
+  per_command_seconds: 600        # kills the whole run: one hanging test then loses every result, so
+                                  # prefer a per-test timeout in the runner (blind tests sometimes use huge inputs)
 
 flake_reruns: 3                   # each revision is run this many times; inconsistent tests are dropped
 refine_rounds: 3                  # max repair rounds

@@ -24,3 +24,7 @@ You never see or relay the blind payload: the engine reads the frozen bundle its
 - **protect-tests (PreToolUse on apply_patch / edit tools):** blocks edits to protected tests.
 - **stop-gate (Stop):** as configured.
 - **handoff-guard:** not needed here, since the blind payload never passes through you.
+
+Codex runs hook commands through a shell with `PLUGIN_ROOT` and `CLAUDE_PLUGIN_ROOT` set as environment variables, so the shared `node "${CLAUDE_PLUGIN_ROOT}/dist/tcheck.mjs" hook …` commands resolve on macOS and Linux. File edits reach protect-tests as `apply_patch` with the patch in `tool_input.command`.
+
+TODO (live check pending): the walkthrough of this pathway in a real Codex session has not been done yet. On the build machine `codex exec` rejected the configured model (`gpt-6-astra`) as needing a newer Codex CLI. After upgrading Codex, confirm the hooks fire (`tcheck env` then shows `hooks_seen: true`) and that `tcheck blind-run --backend codex` returns tests.
