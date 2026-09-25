@@ -7,3 +7,4 @@
 - §8.5: tests whose errors-revision outcome is a repairable error are `unrepairable` (dropped, not queued). Missing outcome after timeout reported as `timeout`.
 - §10: ledger type `initialized` (from `init`).
 - package.json: test script is `node --test tests/*.test.js` (Node 22+ treats a bare directory as a module).
+- fixtures-spec: fixtures carry context.json (selftest has no agent to write context); stale_state targets Counter.reset (the bug's home).

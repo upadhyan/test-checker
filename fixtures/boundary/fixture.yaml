@@ -1,0 +1,8 @@
+name: boundary
+language: python
+target: "src/fx/ranges.py::in_range"
+lines: [4, 7]
+bug: "lo <= x < hi instead of lo <= x <= hi: the upper bound is excluded"
+intent: "in_range(x, lo, hi) is True when lo <= x <= hi, both ends inclusive; ValueError if lo > hi"
+expect:
+  min_effective_blind: 1

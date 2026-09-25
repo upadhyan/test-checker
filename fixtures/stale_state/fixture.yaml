@@ -1,0 +1,8 @@
+name: stale_state
+language: python
+target: "src/fx/counter.py::Counter.reset"
+lines: [21, 22]
+bug: "reset() clears the total but not the set of seen values, so re-adding a value after reset is ignored"
+intent: "reset() returns the counter to its initial empty state: total() is 0 and every value can be counted again"
+expect:
+  min_effective_blind: 1

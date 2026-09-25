@@ -8,6 +8,7 @@ Small bug/fix pairs for sanity-checking the loop end to end. These aren't a benc
 fixtures/<name>/
 ├── fixture.yaml       # metadata (below)
 ├── config.yaml        # a normal .test-checker/config.yaml
+├── context.json       # the context an agent would write for the target (bundle.schema.json `context`)
 ├── buggy/             # full tree at the buggy revision
 └── fixed/             # full tree at the fixed revision (identical except the fix)
 ```
@@ -35,7 +36,7 @@ Keep each fixture to a single module with one or two functions, no dependencies 
 | `boundary` | `in_range(x, lo, hi)` (inclusive range) | `lo <= x < hi` → `lo <= x <= hi` | Code-aware tests copy the buggy edge: `in_range(5, 1, 5) is False` |
 | `null_guard` | `normalize_name(s)` | missing `None` / empty check: the fixed version raises `ValueError`, the buggy one crashes with `AttributeError` | A robustness omission the advanced prompt should flag |
 | `wrong_operator` | `is_valid_port(p)` | `p > 0 or p < 65536` → `p > 0 and p < 65536` | The buggy version returns True for everything, and code-aware tests happily assert that |
-| `stale_state` | `Counter.add(x)` / `Counter.total()` | `reset()` doesn't clear `_seen` → it does | Stateful; checks that the context bundle (fields, constructor, sibling methods) is enough |
+| `stale_state` | `Counter.reset()` (with `add(x)` / `total()` as siblings) | `reset()` doesn't clear `_seen` → it does | Stateful; checks that the context bundle (fields, constructor, sibling methods) is enough |
 
 ## Pass criteria for `tcheck selftest`
 

@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 — Tracer: hand-written tests classified on `off_by_one`
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Each fixture has fixture.yaml, config.yaml, buggy/, fixed/
 - [ ] A hand-written bug-catching test classifies `effective` on each

@@ -1,0 +1,1 @@
+{ "test_conventions": { "imports": ["from fx.names import normalize_name"] } }

@@ -1,0 +1,8 @@
+name: wrong_operator
+language: python
+target: "src/fx/net.py::is_valid_port"
+lines: [4, 5]
+bug: "p > 0 or p < 65536 instead of and: every integer is accepted"
+intent: "is_valid_port(p) is True exactly for integers 1..65535"
+expect:
+  min_effective_blind: 1

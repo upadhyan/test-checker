@@ -1,0 +1,9 @@
+{
+  "enclosing_type": {
+    "name": "Counter",
+    "constructors": ["def __init__(self)"],
+    "fields": ["_seen: set of values already counted", "_total: int, number of distinct values counted"],
+    "sibling_signatures": ["def add(self, x) -> bool", "def total(self) -> int"]
+  },
+  "test_conventions": { "imports": ["from fx.counter import Counter"] }
+}

@@ -1,0 +1,8 @@
+name: null_guard
+language: python
+target: "src/fx/names.py::normalize_name"
+lines: [4, 5]
+bug: "no None/empty check: the fixed version raises ValueError, the buggy one crashes with AttributeError or returns an empty string"
+intent: "normalize_name(s) title-cases each whitespace-separated word and joins them with single spaces; ValueError if s is None or blank"
+expect:
+  min_effective_blind: 1

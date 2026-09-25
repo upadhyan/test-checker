@@ -1,0 +1,13 @@
+version: 1
+language: python
+framework: pytest
+source_globs: ["src/**/*.py"]
+test_dir: tests/tcheck
+test_file_pattern: "test_{symbol}_{n}.py"
+promote_dir: tests/regression
+commands:
+  run: "python -m pytest {files} --junitxml={junit} -q -p no:cacheprovider"
+flake_reruns: 2
+spec:
+  source: buggy
+gate: off
