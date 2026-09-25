@@ -7,3 +7,4 @@ export { globToRegex, matchGlobs } from "./util";
 export { buildFixtureRepo, listFixtures, loadFixture } from "./fixtures";
 export { parseJUnit } from "./junit";
 export { checkLeak, redactLeaks, normalize, signatureLineCount, significantLines } from "./leak";
+export { redactRepairText } from "./repair";

@@ -1032,6 +1032,24 @@ var init_leak = __esm({
   }
 });
 
+// src/repair.ts
+function redactRepairText(text, targets, opts = {}) {
+  const lines = redactLeaks(text, targets, opts).split(/\r?\n/).filter((l) => !ASSERTISH.test(l) && !EQ_LITERAL.test(l)).map((l) => l.replace(/\bgot\b.*$/i, "got [value redacted]"));
+  let out = lines.join("\n");
+  if (Buffer.byteLength(out) > MAX_REPAIR_BYTES) out = Buffer.from(out).subarray(0, MAX_REPAIR_BYTES).toString("utf8").replace(/�$/, "") + "\n[truncated]";
+  return out;
+}
+var ASSERTISH, EQ_LITERAL, MAX_REPAIR_BYTES;
+var init_repair = __esm({
+  "src/repair.ts"() {
+    "use strict";
+    init_leak();
+    ASSERTISH = /\b(expected|actual|assert\w*)\b/i;
+    EQ_LITERAL = /[!=]==?\s*(?:["'`\d-]|true\b|false\b|none\b|null\b|nil\b|undefined\b)/i;
+    MAX_REPAIR_BYTES = 4096;
+  }
+});
+
 // src/lib.ts
 var init_lib = __esm({
   "src/lib.ts"() {
@@ -1044,6 +1062,7 @@ var init_lib = __esm({
     init_fixtures();
     init_junit();
     init_leak();
+    init_repair();
   }
 });
 
@@ -1439,7 +1458,8 @@ ${r.stderr}`);
         }
         seen.set(`${f.target}::${c.classname}::${c.name}`, { c, f });
       }
-      if (r.code !== 0 && !r.timedOut) {
+      const explained = [...seen.values()].some((s) => isRepairable(s.c, patterns));
+      if (r.code !== 0 && !r.timedOut && !explained) {
         for (const f of labelFiles) {
           if (f.target === "existing") continue;
           if (![...seen.values()].some((s) => s.f === f) && !lr.load_errors.some((e) => e.file === f.path)) {
@@ -1878,6 +1898,7 @@ export {
   parseYaml,
   pluginRoot,
   redactLeaks,
+  redactRepairText,
   register,
   resolveBackend,
   signatureLineCount,

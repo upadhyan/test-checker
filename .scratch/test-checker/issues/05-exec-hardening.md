@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 — Tracer: hand-written tests classified on `off_by_one`
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] A flaky test is excluded and listed
 - [ ] A hanging run is killed and missing tests become `error: timeout`

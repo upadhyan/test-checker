@@ -2,35 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { git, tcheck, writeFiles } from "./helpers.js";
-import { buildFixtureRepo } from "../dist/tcheck.mjs";
-
-/** Start a bugfix run on a fixture and register its target. */
-export function fixtureRun(name, extra = {}) {
-  const { dir, buggy, fixed, fixture } = buildFixtureRepo(name);
-  let r = tcheck(dir, ["run", "start", "--mode", "bugfix", "--buggy", buggy, "--fixed", fixed, "--json"]);
-  assert.equal(r.code, 0, r.stderr);
-  const run = r.json.run;
-  r = tcheck(dir, ["target", "add", run, fixture.target, "--lines", fixture.lines.join("-"), "--json", ...(extra.targetArgs ?? [])]);
-  assert.equal(r.code, 0, r.stderr);
-  return { dir, run, target: r.json.target, fixture, buggy, fixed };
-}
-
-/** Drop hand-written test files straight into a generated round (no model involved). */
-export function dropTests(dir, run, target, files, round = 0) {
-  writeFiles(path.join(dir, ".test-checker", "generated", run, target, `round-${round}`), files);
-}
-
-export function composeExecClassify(dir, run) {
-  let r = tcheck(dir, ["compose", run, "--json"]);
-  assert.equal(r.code, 0, r.stderr);
-  r = tcheck(dir, ["exec", run, "--json"]);
-  assert.equal(r.code, 0, r.stderr + r.stdout);
-  const exec = r.json;
-  r = tcheck(dir, ["classify", run, "--json"]);
-  assert.equal(r.code, 0, r.stderr);
-  return { exec, cls: r.json };
-}
+import { git, fixtureRun, dropTests, composeExecClassify } from "./helpers.js";
 
 const byName = (cls, name) => cls.tests.find((t) => t.name === name);
 

@@ -216,7 +216,10 @@ export async function execRun(repo: Repo, runId: string, opts: { log?: (s: strin
         }
         seen.set(`${f.target}::${c.classname}::${c.name}`, { c, f });
       }
-      if (r.code !== 0 && !r.timedOut) {
+      // A file with no test cases after a failed command is a load error, unless another file's own
+      // collection error explains the abort (pytest stops the whole session on one bad file).
+      const explained = [...seen.values()].some((s) => isRepairable(s.c, patterns));
+      if (r.code !== 0 && !r.timedOut && !explained) {
         for (const f of labelFiles) {
           if (f.target === "existing") continue;
           if (![...seen.values()].some((s) => s.f === f) && !lr.load_errors.some((e) => e.file === f.path)) {
