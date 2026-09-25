@@ -4,7 +4,7 @@
 
 **Blocked by:** 10 — Leak check and `context set`
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] A spec quoting a body line is rejected
 - [ ] Renderer refuses unknown variables

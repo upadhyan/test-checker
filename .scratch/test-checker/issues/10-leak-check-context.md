@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 — Tracer: hand-written tests classified on `off_by_one`
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Context containing a body line is rejected
 - [ ] Common boilerplate lines do not trigger

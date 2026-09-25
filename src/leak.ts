@@ -5,7 +5,7 @@ import { matchGlobs, readJson, writeJson } from "./util";
 
 /** engine-spec §6 normalisation. */
 export function normalize(line: string): string {
-  return line.trim().replace(/\s+/g, " ").replace(/[;,]+$/, "");
+  return line.trim().replace(/\s+/g, " ").replace(/[\s;,]+$/, "");
 }
 
 const DECORATOR = /^\s*(@|#\[|\[[A-Z]|\/\/|\/\*|\*|#(?!\[)|--|;;)/;
@@ -114,7 +114,8 @@ export function checkLeak(text: string, targets: LeakTarget[], opts: LeakOpts = 
         if (tl.includes(bl)) findings.push({ target: t.id, body_line: bl, text_line: i + 1, text: tl });
       });
     }
-    const bodyShingles = shingles(tokens(t.body_lines.join("\n")));
+    const mask = commentMask(t.body_lines);
+    const bodyShingles = shingles(tokens(t.body_lines.filter((_, i) => !mask[i]).join("\n")));
     if (bodyShingles.size) {
       let shared = 0;
       for (const s of bodyShingles) if (textShingles.has(s)) shared++;

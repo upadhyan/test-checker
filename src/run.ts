@@ -263,6 +263,9 @@ export function checkFileName(name: string, pattern: string, t: Target): string 
   return null;
 }
 
+/** Bookkeeping files stored beside submitted tests in a round directory. */
+export const isRoundMeta = (name: string) => name === "notes.md" || name === "round.json";
+
 export function generatedDir(repo: Repo, runId: string, targetIdArg: string, round?: number): string {
   const base = repo.p("generated", runId, targetIdArg);
   return round === undefined ? base : path.join(base, `round-${round}`);
@@ -304,7 +307,7 @@ export function compose(repo: Repo, runId: string): { files: ComposedFile[]; mis
     const dir = expandPath(cfg.test_dir, t);
     for (const src of listFilesRecursive(generatedDir(repo, runId, tid, round))) {
       const name = path.basename(src);
-      if (name === "notes.md") continue;
+      if (isRoundMeta(name)) continue;
       const final = path.posix.join(dir, name);
       const clash = files.find((f) => f.path === final);
       if (clash) throw rejected(`two targets produced the same test file ${final} (${clash.target}, ${tid}); use {target_slug} in test_file_pattern`);

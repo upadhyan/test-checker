@@ -8,3 +8,6 @@ export { buildFixtureRepo, listFixtures, loadFixture } from "./fixtures";
 export { parseJUnit } from "./junit";
 export { checkLeak, redactLeaks, normalize, signatureLineCount, significantLines } from "./leak";
 export { redactRepairText } from "./repair";
+export { renderTemplate, parseFrame, frame, loadPayload, payloadIndex } from "./payload";
+export { parseTextSubmission, submitTests } from "./bundle";
+export { parseSpecOutput } from "./spec";

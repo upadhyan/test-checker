@@ -43,6 +43,11 @@ function writeText(file, text) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, text);
 }
+function readInput(file) {
+  if (file === "-") return fs.readFileSync(0, "utf8");
+  if (!fs.existsSync(file)) throw usage(`file not found: ${file}`);
+  return fs.readFileSync(file, "utf8");
+}
 function toPosix(p) {
   return p.split(path.sep).join("/");
 }
@@ -888,28 +893,28 @@ function parseJUnit(xml) {
       if (child) buf += m[1];
       continue;
     }
-    const [, , close, tag, attrText, selfClose] = m;
-    if (!tag) continue;
-    if (!close && tag === "testcase") {
+    const [, , close, tag2, attrText, selfClose] = m;
+    if (!tag2) continue;
+    if (!close && tag2 === "testcase") {
       const a = attrs(attrText);
       cur = { classname: a.classname ?? "", name: a.name ?? "", outcome: "pass", ...a.file ? { file: a.file } : {} };
       if (selfClose) {
         cases.push(cur);
         cur = null;
       }
-    } else if (close && tag === "testcase" && cur) {
+    } else if (close && tag2 === "testcase" && cur) {
       cases.push(cur);
       cur = null;
-    } else if (cur && !close && (tag === "failure" || tag === "error" || tag === "skipped")) {
+    } else if (cur && !close && (tag2 === "failure" || tag2 === "error" || tag2 === "skipped")) {
       const a = attrs(attrText);
-      if (cur.outcome === "pass" || tag !== "skipped") cur.outcome = tag;
+      if (cur.outcome === "pass" || tag2 !== "skipped") cur.outcome = tag2;
       if (a.type) cur.type = a.type;
       if (a.message) cur.message = a.message;
       if (!selfClose) {
-        child = tag;
+        child = tag2;
         buf = "";
       }
-    } else if (close && child && tag === child && cur) {
+    } else if (close && child && tag2 === child && cur) {
       cur.text = (cur.text ? cur.text + "\n" : "") + buf.trim();
       child = null;
     }
@@ -931,8 +936,10 @@ var init_junit = __esm({
 });
 
 // src/leak.ts
+import * as fs8 from "node:fs";
+import * as path7 from "node:path";
 function normalize(line) {
-  return line.trim().replace(/\s+/g, " ").replace(/[;,]+$/, "");
+  return line.trim().replace(/\s+/g, " ").replace(/[\s;,]+$/, "");
 }
 function signatureLineCount(lines) {
   let i = 0;
@@ -996,7 +1003,8 @@ function checkLeak(text, targets, opts = {}) {
         if (tl.includes(bl)) findings.push({ target: t.id, body_line: bl, text_line: i + 1, text: tl });
       });
     }
-    const bodyShingles = shingles(tokens(t.body_lines.join("\n")));
+    const mask = commentMask(t.body_lines);
+    const bodyShingles = shingles(tokens(t.body_lines.filter((_, i) => !mask[i]).join("\n")));
     if (bodyShingles.size) {
       let shared = 0;
       for (const s of bodyShingles) if (textShingles.has(s)) shared++;
@@ -1020,6 +1028,31 @@ function redactLeaks(text, targets, opts = {}) {
     const n = normalize(l);
     return sig.some((s) => n.includes(s)) ? REDACTED : l;
   }).join("\n");
+}
+function formatFindings(r, where) {
+  const lines = r.findings.slice(0, 20).map((f) => `  ${where}:${f.text_line}: contains body line of ${f.target}: "${f.body_line}"`);
+  if (r.findings.length > 20) lines.push(`  \u2026 and ${r.findings.length - 20} more`);
+  if (!r.findings.length) lines.push(`  ${where}: shares ${Math.round(r.shingle_ratio * 100)}% of ${r.shingle_target}'s 6-token shingles`);
+  return lines.join("\n");
+}
+function commonLines(repo, runId) {
+  const cache = runId ? repo.p("runs", runId, "common-lines.json") : null;
+  if (cache && fs8.existsSync(cache)) return new Set(readJson(cache));
+  const minLen = repo.config.leak.min_line_length;
+  const files = repo.git(["ls-files", "-z"], { allowFail: true }).split("\0").filter((f) => f && matchGlobs(f, repo.config.source_globs));
+  const counts = /* @__PURE__ */ new Map();
+  for (const f of files) {
+    const p = path7.join(repo.root, f);
+    try {
+      if (fs8.statSync(p).size > 1e6) continue;
+      const seen = new Set(fs8.readFileSync(p, "utf8").split(/\r?\n/).map(normalize).filter((l) => l.length >= minLen));
+      for (const l of seen) counts.set(l, (counts.get(l) ?? 0) + 1);
+    } catch {
+    }
+  }
+  const top = [...counts.entries()].filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, 200).map(([l]) => l);
+  if (cache) writeJson(cache, top);
+  return new Set(top);
 }
 var DECORATOR, KEYWORDS, tokens, REDACTED;
 var init_leak = __esm({
@@ -1051,32 +1084,134 @@ var init_repair = __esm({
   }
 });
 
-// src/lib.ts
-var init_lib = __esm({
-  "src/lib.ts"() {
+// src/payload.ts
+import * as fs9 from "node:fs";
+import * as path8 from "node:path";
+function assertBlindSafe(template, name) {
+  const m = /\{\{\s*(?:#if\s+)?(target\.[\w.]*)\s*\}\}/.exec(template);
+  if (m) throw rejected(`template ${name} references ${m[1]}; writer and repair templates must never see the target body`);
+}
+function renderTemplate(template, vars, opts) {
+  if (BLIND_ROLES.includes(opts.role)) assertBlindSafe(template, opts.name);
+  let t = template.replace(/<!--\s*variant:\s*([\w-]+)\s*-->\n?([\s\S]*?)<!--\s*\/variant\s*-->\n?/g, (_, v, body) => v === opts.variant ? body : "");
+  t = t.replace(/^[ \t]*<!--[\s\S]*?-->[ \t]*\n/gm, "").replace(/<!--[\s\S]*?-->/g, "");
+  t = t.replace(/\{\{#if\s+([\w.]+)\s*\}\}([\s\S]*?)\{\{\/if\}\}/g, (_, name, body) => {
+    if (!(name.split(".")[0] in vars)) throw usage(`template ${opts.name}: unknown variable {{#if ${name}}}`);
+    return present(lookup(vars, name)) ? body : "";
+  });
+  if (/\{\{\s*(#if|\/if)/.test(t)) throw usage(`template ${opts.name}: unbalanced {{#if}} block`);
+  t = t.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, name) => {
+    const v = lookup(vars, name);
+    if (v === void 0 || v === null) throw usage(`template ${opts.name}: unknown variable {{${name}}}`);
+    if (Array.isArray(v)) return v.join(", ");
+    if (typeof v === "object") throw usage(`template ${opts.name}: {{${name}}} is an object`);
+    return String(v);
+  });
+  return t.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+function renderPrompt(file, vars, role, variant) {
+  const p = path8.join(pluginRoot(), "prompts", file);
+  return renderTemplate(fs9.readFileSync(p, "utf8"), vars, { name: file, role, variant });
+}
+function newPayloadId() {
+  return `p-${randHex(8)}`;
+}
+function frame(id, role, body) {
+  const text = body.replace(/\r\n?/g, "\n").replace(/\n+$/, "");
+  const sha = sha256(text);
+  return { full: `<<<TCHECK-PAYLOAD v1 id=${id} role=${role} sha256=${sha}>>>
+${text}
+<<<END TCHECK-PAYLOAD>>>`, sha };
+}
+function parseFrame(full) {
+  const m = HEADER.exec(full.replace(/\r\n?/g, "\n").trim());
+  return m ? { id: m[1], role: m[2], sha: m[3], body: m[4] } : null;
+}
+function indexPath(repo) {
+  return repo.p("payloads", "index.json");
+}
+function withIndexLock(repo, fn) {
+  const lock = repo.p("payloads", "index.lock");
+  fs9.mkdirSync(path8.dirname(lock), { recursive: true });
+  const deadline = Date.now() + 5e3;
+  for (; ; ) {
+    try {
+      fs9.writeFileSync(lock, String(process.pid), { flag: "wx" });
+      break;
+    } catch {
+      if (Date.now() > deadline) fs9.rmSync(lock, { force: true });
+      else Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+    }
+  }
+  try {
+    const idx = readJson(indexPath(repo), {});
+    const out = fn(idx);
+    writeJson(indexPath(repo), idx);
+    return out;
+  } finally {
+    fs9.rmSync(lock, { force: true });
+  }
+}
+function storePayload(repo, e, body) {
+  const id = e.id ?? newPayloadId();
+  const { full, sha } = frame(id, e.role, body);
+  writeText(repo.p("payloads", `${id}.md`), full);
+  const entry = { ...e, id, sha256: sha, consumed: false, created_at: nowIso() };
+  withIndexLock(repo, (idx) => {
+    idx[id] = entry;
+  });
+  repo.ledger("payload_emitted", { run: e.run, payload: id, role: e.role, sha256: sha, ...e.target ? { target: e.target } : {}, ...e.test ? { test: e.test } : {} });
+  return { id, full, entry };
+}
+function loadPayload(repo, id) {
+  if (!/^p-[0-9a-f]{8}$/.test(id)) throw usage(`not a payload id: ${id}`);
+  const entry = readJson(indexPath(repo), {})[id];
+  const file = repo.p("payloads", `${id}.md`);
+  if (!entry || !fs9.existsSync(file)) throw rejected(`unknown payload ${id}`);
+  const full = fs9.readFileSync(file, "utf8");
+  const f = parseFrame(full);
+  if (!f || f.id !== id || f.role !== entry.role || f.sha !== entry.sha256 || sha256(f.body) !== entry.sha256) {
+    throw rejected(`payload ${id} failed its hash check (the frozen file was modified)`);
+  }
+  return { entry, full, body: f.body };
+}
+function consumePayload(repo, id) {
+  withIndexLock(repo, (idx) => {
+    if (!idx[id]) throw rejected(`unknown payload ${id}`);
+    if (idx[id].consumed) throw rejected(`payload ${id} was already used; emit a new one`);
+    idx[id].consumed = true;
+    idx[id].consumed_at = nowIso();
+  });
+}
+function payloadIndex(repo) {
+  return readJson(indexPath(repo), {});
+}
+function requireRole(entry, roles) {
+  if (!roles.includes(entry.role)) throw new TcheckError(`payload ${entry.id} has role ${entry.role}; expected ${roles.join(" or ")}`, EXIT.REJECTED);
+}
+var BLIND_ROLES, lookup, present, HEADER;
+var init_payload = __esm({
+  "src/payload.ts"() {
     "use strict";
     init_repo();
-    init_env();
-    init_yaml();
-    init_schema();
     init_util();
-    init_fixtures();
-    init_junit();
-    init_leak();
-    init_repair();
+    BLIND_ROLES = ["writer", "repair"];
+    lookup = (vars, name) => name.split(".").reduce((o, k) => o == null ? void 0 : o[k], vars);
+    present = (v) => v !== void 0 && v !== null && v !== "" && v !== false && !(Array.isArray(v) && v.length === 0) && !(typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 0);
+    HEADER = /^<<<TCHECK-PAYLOAD v1 id=(p-[0-9a-f]{8}) role=(\w+) sha256=([0-9a-f]{64})>>>\n([\s\S]*)\n<<<END TCHECK-PAYLOAD>>>$/;
   }
 });
 
 // src/run.ts
-import * as fs8 from "node:fs";
+import * as fs10 from "node:fs";
 import * as os2 from "node:os";
-import * as path7 from "node:path";
+import * as path9 from "node:path";
 function runDir(repo, runId, ...p) {
   return repo.p("runs", runId, ...p);
 }
 function loadRun(repo, runId) {
   const f = runDir(repo, runId, "run.json");
-  if (!fs8.existsSync(f)) throw usage(`unknown run: ${runId}`);
+  if (!fs10.existsSync(f)) throw usage(`unknown run: ${runId}`);
   return readJson(f);
 }
 function saveRun(repo, run2) {
@@ -1084,8 +1219,8 @@ function saveRun(repo, run2) {
 }
 function listRuns(repo) {
   const d = repo.p("runs");
-  if (!fs8.existsSync(d)) return [];
-  return fs8.readdirSync(d).filter((r) => fs8.existsSync(path7.join(d, r, "run.json"))).sort().map((r) => readJson(path7.join(d, r, "run.json")));
+  if (!fs10.existsSync(d)) return [];
+  return fs10.readdirSync(d).filter((r) => fs10.existsSync(path9.join(d, r, "run.json"))).sort().map((r) => readJson(path9.join(d, r, "run.json")));
 }
 function newRunId() {
   const d = /* @__PURE__ */ new Date();
@@ -1094,7 +1229,7 @@ function newRunId() {
 }
 function snapshotWorktree(repo, runId) {
   const head = repo.commit("HEAD");
-  const idx = path7.join(os2.tmpdir(), `tcheck-index-${randHex(8)}`);
+  const idx = path9.join(os2.tmpdir(), `tcheck-index-${randHex(8)}`);
   const env = { ...process.env, GIT_INDEX_FILE: idx };
   try {
     repo.git(["read-tree", "HEAD"], { env });
@@ -1105,7 +1240,7 @@ function snapshotWorktree(repo, runId) {
     repo.git(["update-ref", `refs/tcheck/${runId}/worktree`, commit]);
     return commit;
   } finally {
-    fs8.rmSync(idx, { force: true });
+    fs10.rmSync(idx, { force: true });
   }
 }
 function runStart(repo, opts) {
@@ -1129,7 +1264,7 @@ function runStart(repo, opts) {
   }
   const existing = (opts.existing ?? []).map((p) => repo.rel(p));
   if (mode === "audit" && !existing.length) throw usage("audit mode needs --existing <test paths>");
-  for (const e of existing) if (!fs8.existsSync(path7.join(repo.root, e))) throw usage(`--existing path not found: ${e}`);
+  for (const e of existing) if (!fs10.existsSync(path9.join(repo.root, e))) throw usage(`--existing path not found: ${e}`);
   const run2 = {
     id,
     mode,
@@ -1195,23 +1330,23 @@ function targetAdd(repo, runId, spec, linesArg, rev) {
 }
 function loadTarget(repo, runId, targetIdArg) {
   const f = runDir(repo, runId, "targets", targetIdArg, "target.json");
-  if (!fs8.existsSync(f)) throw usage(`unknown target ${targetIdArg} in run ${runId}`);
+  if (!fs10.existsSync(f)) throw usage(`unknown target ${targetIdArg} in run ${runId}`);
   return readJson(f);
 }
 function ensureWorktree(repo, sha, key = sha) {
   const dir = repo.p("worktrees", "_cache", key);
   const metaFile = repo.p("worktrees", "_cache", `${key}.json`);
   let fresh = false;
-  if (!fs8.existsSync(path7.join(dir, ".git"))) {
-    fs8.rmSync(dir, { recursive: true, force: true });
+  if (!fs10.existsSync(path9.join(dir, ".git"))) {
+    fs10.rmSync(dir, { recursive: true, force: true });
     repo.git(["worktree", "prune"], { allowFail: true });
-    fs8.mkdirSync(path7.dirname(dir), { recursive: true });
+    fs10.mkdirSync(path9.dirname(dir), { recursive: true });
     repo.git(["worktree", "add", "--detach", "--force", dir, sha]);
-    fs8.rmSync(metaFile, { force: true });
+    fs10.rmSync(metaFile, { force: true });
     fresh = true;
   }
   const meta = readJson(metaFile, { setup_done: false, composed: [] });
-  for (const f of meta.composed) fs8.rmSync(path7.join(dir, f), { force: true });
+  for (const f of meta.composed) fs10.rmSync(path9.join(dir, f), { force: true });
   meta.composed = [];
   repo.git(["-C", dir, "checkout", "--force", "--detach", sha], { allowFail: true });
   repo.git(["-C", dir, "checkout", "--", "."], { allowFail: true });
@@ -1221,7 +1356,7 @@ function words(symbol) {
   return symbol.replace(/([a-z0-9])([A-Z])/g, "$1 $2").split(/[^A-Za-z0-9]+/).filter(Boolean);
 }
 function packagePath(file) {
-  const dir = path7.posix.dirname(file);
+  const dir = path9.posix.dirname(file);
   const m = /(?:^|\/)(?:java|kotlin|scala|groovy)\/(.*)$/.exec(dir);
   return m ? m[1] : dir === "." ? "" : dir;
 }
@@ -1231,20 +1366,38 @@ function expandPath(template, t, n) {
     symbol: w.map((x) => x.toLowerCase()).join("_"),
     Symbol: w.map((x) => x[0].toUpperCase() + x.slice(1)).join(""),
     target_slug: t.id.replace(/-/g, "_"),
-    pkg_dir: path7.posix.dirname(t.file),
+    pkg_dir: path9.posix.dirname(t.file),
     package_path: packagePath(t.file)
   };
   if (n !== void 0) vals.n = String(n);
   return template.replace(/\{(\w+)\}/g, (m, k) => vals[k] ?? m).replace(/\/{2,}/g, "/").replace(/^\.\//, "");
 }
+function nameShape(pattern, t) {
+  const expanded = expandPath(pattern, t);
+  const first = expanded.indexOf("{");
+  const last = expanded.lastIndexOf("}");
+  return {
+    prefix: first < 0 ? expanded : expanded.slice(0, first),
+    suffix: last < 0 ? "" : expanded.slice(last + 1),
+    example: expandPath(pattern, t, 1)
+  };
+}
+function checkFileName(name, pattern, t) {
+  if (!name || /[\\/]/.test(name) || name.includes("..") || name.startsWith(".")) return `"${name}": use a plain file name (no directories)`;
+  const s = nameShape(pattern, t);
+  if (!name.startsWith(s.prefix) || !name.endsWith(s.suffix) || name.length < s.prefix.length + s.suffix.length) {
+    return `"${name}" does not match the naming pattern (e.g. ${s.example})`;
+  }
+  return null;
+}
 function generatedDir(repo, runId, targetIdArg, round) {
   const base = repo.p("generated", runId, targetIdArg);
-  return round === void 0 ? base : path7.join(base, `round-${round}`);
+  return round === void 0 ? base : path9.join(base, `round-${round}`);
 }
 function latestRound(repo, runId, targetIdArg) {
   const base = generatedDir(repo, runId, targetIdArg);
-  if (!fs8.existsSync(base)) return null;
-  const rounds = fs8.readdirSync(base).map((d) => /^round-(\d+)$/.exec(d)).filter(Boolean).map((m) => parseInt(m[1], 10));
+  if (!fs10.existsSync(base)) return null;
+  const rounds = fs10.readdirSync(base).map((d) => /^round-(\d+)$/.exec(d)).filter(Boolean).map((m) => parseInt(m[1], 10));
   return rounds.length ? Math.max(...rounds) : null;
 }
 function compose(repo, runId) {
@@ -1253,7 +1406,7 @@ function compose(repo, runId) {
   const files = [];
   const missing = [];
   const outDir = runDir(repo, runId, "composed");
-  fs8.rmSync(outDir, { recursive: true, force: true });
+  fs10.rmSync(outDir, { recursive: true, force: true });
   for (const tid of run2.targets) {
     const t = loadTarget(repo, runId, tid);
     const round = latestRound(repo, runId, tid);
@@ -1263,20 +1416,20 @@ function compose(repo, runId) {
     }
     const dir = expandPath(cfg.test_dir, t);
     for (const src of listFilesRecursive(generatedDir(repo, runId, tid, round))) {
-      const name = path7.basename(src);
-      if (name === "notes.md") continue;
-      const final = path7.posix.join(dir, name);
+      const name = path9.basename(src);
+      if (isRoundMeta(name)) continue;
+      const final = path9.posix.join(dir, name);
       const clash = files.find((f) => f.path === final);
       if (clash) throw rejected(`two targets produced the same test file ${final} (${clash.target}, ${tid}); use {target_slug} in test_file_pattern`);
-      files.push({ path: final, target: tid, round, source: path7.relative(repo.root, src) });
-      writeText(path7.join(outDir, final), fs8.readFileSync(src, "utf8"));
+      files.push({ path: final, target: tid, round, source: path9.relative(repo.root, src) });
+      writeText(path9.join(outDir, final), fs10.readFileSync(src, "utf8"));
     }
   }
   if (!files.length) throw usage(`no submitted tests to compose in ${runId}${missing.length ? ` (waiting on: ${missing.join(", ")})` : ""}`);
   writeJson(runDir(repo, runId, "composed.json"), { at: nowIso(), files });
   return { files, missing };
 }
-var LABELS, ERRORS_LABEL;
+var LABELS, ERRORS_LABEL, isRoundMeta;
 var init_run = __esm({
   "src/run.ts"() {
     "use strict";
@@ -1284,11 +1437,336 @@ var init_run = __esm({
     init_leak();
     LABELS = { bugfix: ["buggy", "fixed"], new: ["current"], audit: ["current"] };
     ERRORS_LABEL = { bugfix: "fixed", new: "current", audit: "current" };
+    isRoundMeta = (name) => name === "notes.md" || name === "round.json";
+  }
+});
+
+// src/spec.ts
+import * as fs11 from "node:fs";
+import * as path10 from "node:path";
+function leakContext(repo, runId) {
+  const run2 = loadRun(repo, runId);
+  return {
+    targets: run2.targets.map((t) => loadTarget(repo, runId, t)),
+    opts: { common: commonLines(repo, runId), minLen: repo.config.leak.min_line_length, threshold: repo.config.leak.shingle_threshold }
+  };
+}
+function assertNoLeak(repo, runId, text, where, advice) {
+  const { targets, opts } = leakContext(repo, runId);
+  const r = checkLeak(text, targets, opts);
+  if (!r.passed) throw rejected(`leak check failed for ${where}:
+${formatFindings(r, where)}
+${advice}`, r);
+  return { shingle_ratio: r.shingle_ratio };
+}
+function bundleSchema() {
+  bundleSchemaCache ??= readJson(path10.join(pluginRoot(), "skills", "verify-tests", "references", "bundle.schema.json"));
+  return bundleSchemaCache;
+}
+function jsonStrings(v) {
+  if (typeof v === "string") return v;
+  if (Array.isArray(v)) return v.map(jsonStrings).join("\n");
+  if (v && typeof v === "object") return Object.values(v).map(jsonStrings).join("\n");
+  return "";
+}
+function contextSet(repo, runId, targetId2, file) {
+  loadTarget(repo, runId, targetId2);
+  let ctx;
+  try {
+    ctx = JSON.parse(fs11.readFileSync(file, "utf8"));
+  } catch (e) {
+    throw rejected(`${file} is not valid JSON: ${e.message}`);
+  }
+  const errs = validate(bundleSchema().properties.context, ctx, "context");
+  if (errs.length) throw rejected(`context does not match bundle.schema.json:
+  ${errs.join("\n  ")}`, errs);
+  const leak = assertNoLeak(repo, runId, jsonStrings(ctx), "context", "Context must hold signatures only, never lines from the target body.");
+  writeJson(runDir(repo, runId, "targets", targetId2, "context.json"), ctx);
+  repo.ledger("context_set", { run: runId, target: targetId2, shingle_ratio: leak.shingle_ratio });
+  return { target: targetId2, leak_check: "passed" };
+}
+function loadContext(repo, runId, targetId2) {
+  return readJson(runDir(repo, runId, "targets", targetId2, "context.json"), {});
+}
+function contextMarkdown(ctx, tag2, opts = {}) {
+  const out = [];
+  const et = ctx.enclosing_type;
+  if (et) {
+    out.push(`### Enclosing type \`${et.name ?? "?"}\``);
+    if (et.constructors?.length) out.push("Constructors:", fence(tag2, et.constructors));
+    if (et.fields?.length) out.push("Fields:", fence(tag2, et.fields));
+    if (et.sibling_signatures?.length) out.push("Other methods:", fence(tag2, et.sibling_signatures));
+  }
+  for (const t of ctx.types ?? []) {
+    out.push(`### Type \`${t.name}\`${t.file ? ` (${t.file})` : ""}`);
+    if (t.constructors?.length) out.push("Constructors:", fence(tag2, t.constructors));
+    if (t.public_signatures?.length) out.push("Public members:", fence(tag2, t.public_signatures));
+  }
+  if (ctx.module_signatures?.length) out.push("### Other functions in the module", fence(tag2, ctx.module_signatures));
+  const tc = ctx.test_conventions ?? {};
+  if (!opts.forWriter && tc.imports?.length) out.push("### Test imports", fence(tag2, tc.imports));
+  if (tc.fixtures?.length) out.push("### Available fixtures and helpers", tc.fixtures.map((f) => `- ${f}`).join("\n"));
+  return out.length ? out.join("\n\n") : "(none provided)";
+}
+function variantFor(repo) {
+  const v = repo.config.spec.variant;
+  return v === "auto" ? "reasoning" : v;
+}
+function configVars(repo, t) {
+  const c = repo.config;
+  return { language: c.language, language_tag: c.language_tag, framework: c.framework, test_file_pattern: expandPath(c.test_file_pattern, t) };
+}
+function specPrompt(repo, runId, targetId2, intent) {
+  const t = loadTarget(repo, runId, targetId2);
+  const vars = {
+    ...configVars(repo, t),
+    target: { symbol: t.symbol, file: t.file, body: t.body },
+    context_markdown: contextMarkdown(loadContext(repo, runId, targetId2), repo.config.language_tag),
+    intent_hint: intent ?? ""
+  };
+  const body = renderPrompt(`spec-extract.${repo.config.spec.prompt}.md`, vars, "spec", variantFor(repo));
+  return storePayload(repo, { role: "spec", run: runId, target: targetId2 }, body);
+}
+function parseSpecOutput(raw) {
+  let spec = tag(raw, "spec");
+  const analysis = tag(raw, "analysis") ?? "";
+  if (!spec) {
+    const m = /Part\s*3[^\n]*\n([\s\S]+)$/i.exec(raw);
+    spec = m ? m[1].trim() : null;
+  }
+  if (!spec) throw rejected("no <spec> block found in the spec-extractor output. Ask the role to answer in the required format and save again.");
+  return { spec, analysis };
+}
+function specSave(repo, runId, targetId2, raw) {
+  loadTarget(repo, runId, targetId2);
+  const { spec, analysis } = parseSpecOutput(raw);
+  const leak = assertNoLeak(repo, runId, spec, "spec", "The spec quotes the implementation. Re-run the spec extractor, or fix it with `tcheck spec edit`.");
+  const dir = runDir(repo, runId, "targets", targetId2);
+  writeText(path10.join(dir, "spec.raw.md"), raw);
+  writeText(path10.join(dir, "spec.md"), spec + "\n");
+  writeText(path10.join(dir, "analysis.md"), analysis ? analysis + "\n" : "");
+  repo.ledger("spec_saved", { run: runId, target: targetId2, shingle_ratio: leak.shingle_ratio });
+  return { target: targetId2, spec, analysis, leak_check: "passed" };
+}
+function specShow(repo, runId, targetId2) {
+  const dir = runDir(repo, runId, "targets", targetId2);
+  if (!fs11.existsSync(path10.join(dir, "spec.md"))) throw usage(`no spec saved for ${targetId2}; run \`tcheck spec prompt ${runId} ${targetId2}\` first`);
+  return { target: targetId2, spec: fs11.readFileSync(path10.join(dir, "spec.md"), "utf8").trim(), analysis: fs11.existsSync(path10.join(dir, "analysis.md")) ? fs11.readFileSync(path10.join(dir, "analysis.md"), "utf8").trim() : "" };
+}
+function specEdit(repo, runId, targetId2, text) {
+  loadTarget(repo, runId, targetId2);
+  const spec = (tag(text, "spec") ?? text).trim();
+  if (!spec) throw rejected("the new spec is empty");
+  assertNoLeak(repo, runId, spec, "spec", "The edited spec quotes the implementation.");
+  writeText(runDir(repo, runId, "targets", targetId2, "spec.md"), spec + "\n");
+  repo.ledger("spec_edited", { run: runId, target: targetId2 });
+  return { target: targetId2, spec, note: "Existing bundles for this target are now stale; run `tcheck bundle build` again." };
+}
+function loadSpec(repo, runId, targetId2) {
+  const f = runDir(repo, runId, "targets", targetId2, "spec.md");
+  return fs11.existsSync(f) ? fs11.readFileSync(f, "utf8").trim() : null;
+}
+var bundleSchemaCache, fence, tag;
+var init_spec = __esm({
+  "src/spec.ts"() {
+    "use strict";
+    init_repo();
+    init_leak();
+    init_run();
+    init_payload();
+    init_schema();
+    init_util();
+    fence = (tag2, lines) => "```" + tag2 + "\n" + lines.join("\n") + "\n```";
+    tag = (text, name) => {
+      const m = new RegExp(`<${name}>([\\s\\S]*?)</${name}>`, "i").exec(text);
+      return m ? m[1].trim() : null;
+    };
+  }
+});
+
+// src/bundle.ts
+import * as fs12 from "node:fs";
+import * as path11 from "node:path";
+function bundleId(runId, targetId2) {
+  return `b-${runId.slice(-4)}-${targetId2}`;
+}
+function loadBundle(repo, id) {
+  const f = repo.p("bundles", `${id}.json`);
+  if (!fs12.existsSync(f)) throw usage(`unknown bundle: ${id}`);
+  return readJson(f);
+}
+function bundleBuild(repo, runId, targetId2) {
+  const t = loadTarget(repo, runId, targetId2);
+  const spec = loadSpec(repo, runId, targetId2);
+  if (!spec) throw usage(`no spec for ${targetId2}; save one with \`tcheck spec save\` first`);
+  const context = loadContext(repo, runId, targetId2);
+  const id = bundleId(runId, targetId2);
+  const focal = { name: t.symbol, signature: t.signature.trim(), file: t.file, language: repo.config.language };
+  const leak = assertNoLeak(repo, runId, jsonStrings({ spec, context }), "bundle", "Fix the spec or context, then build again.");
+  const bundle = {
+    focal,
+    spec,
+    context,
+    meta: { bundle_id: id, run_id: runId, target_id: targetId2, created_at: nowIso(), leak_check: { passed: true, method: "line+shingle (engine-spec \xA76)", max_shared_line_ratio: leak.shingle_ratio } }
+  };
+  const errs = validate(bundleSchema(), bundle, "bundle");
+  if (errs.length) throw rejected(`bundle does not match bundle.schema.json:
+  ${errs.join("\n  ")}`, errs);
+  writeJson(repo.p("bundles", `${id}.json`), bundle);
+  repo.ledger("bundle_frozen", { run: runId, target: targetId2, bundle: id });
+  return { bundle: id };
+}
+function previousTestsMarkdown(repo, runId, targetId2, tag2) {
+  const round = latestRound(repo, runId, targetId2);
+  if (round === null) return "(none)";
+  return listFilesRecursive(generatedDir(repo, runId, targetId2, round)).filter((f) => !isRoundMeta(path11.basename(f))).map((f) => `FILE: ${path11.basename(f)}
+\`\`\`${tag2}
+${fs12.readFileSync(f, "utf8").trimEnd()}
+\`\`\``).join("\n\n");
+}
+function repairRoundsSoFar(repo, runId, targetId2) {
+  let n = 0;
+  for (let r = latestRound(repo, runId, targetId2); r !== null && r >= 0; r--) {
+    const meta = readJson(path11.join(generatedDir(repo, runId, targetId2, r), "round.json"), {});
+    if (meta.role !== "repair") break;
+    n++;
+  }
+  return n;
+}
+function filteredErrors(repo, runId, targetId2) {
+  const rep = readJson(runDir(repo, runId, "repairable.json"), { targets: {} });
+  const items = rep.targets[targetId2] ?? [];
+  if (!items.length) return "";
+  const { targets, opts } = leakContext(repo, runId);
+  const groups = /* @__PURE__ */ new Map();
+  for (const i of items) {
+    const key = i.kind === "compile" ? "(compile step)" : i.file ? path11.basename(i.file) : "(run)";
+    const text = i.kind === "error" && i.test ? `${i.test}: ${i.text}` : i.text;
+    groups.set(key, [...groups.get(key) ?? [], text]);
+  }
+  return [...groups.entries()].map(([file, texts]) => `== ${file} ==
+${redactRepairText([...new Set(texts)].join("\n"), targets, opts)}`).join("\n\n");
+}
+function bundleEmit(repo, id, role, opts = {}) {
+  if (role !== "writer" && role !== "repair") throw usage("--role must be writer or repair");
+  const bundle = loadBundle(repo, id);
+  const runId = opts.run ?? bundle.meta.run_id;
+  if (runId !== bundle.meta.run_id) throw usage(`bundle ${id} belongs to run ${bundle.meta.run_id}, not ${runId}`);
+  const targetId2 = bundle.meta.target_id;
+  const t = loadTarget(repo, runId, targetId2);
+  if (loadSpec(repo, runId, targetId2) !== bundle.spec) throw rejected(`bundle ${id} is stale: the spec was edited since it was built. Run \`tcheck bundle build ${runId} ${targetId2}\`.`);
+  const cfg = repo.config;
+  const payloadId = newPayloadId();
+  const via = opts.via ?? "tool";
+  const vars = {
+    ...configVars(repo, t),
+    bundle,
+    bundle_context_markdown: contextMarkdown(bundle.context, cfg.language_tag, { forWriter: true }),
+    payload_id: payloadId,
+    submit_via_tool: via === "tool" ? "yes" : "",
+    submit_via_text: via === "text" ? "yes" : ""
+  };
+  let round = (latestRound(repo, runId, targetId2) ?? -1) + 1;
+  if (role === "repair") {
+    if (latestRound(repo, runId, targetId2) === null) throw usage(`no tests submitted for ${targetId2} yet; emit a writer payload first`);
+    const done = repairRoundsSoFar(repo, runId, targetId2);
+    if (done >= cfg.refine_rounds) throw rejected(`${targetId2} already had ${done} repair round(s) (refine_rounds: ${cfg.refine_rounds}). Remaining broken tests are dropped.`);
+    const errors = filteredErrors(repo, runId, targetId2);
+    if (!errors) throw rejected(`the latest exec has no repairable errors for ${targetId2}; nothing to repair`);
+    Object.assign(vars, { previous_tests_markdown: previousTestsMarkdown(repo, runId, targetId2, cfg.language_tag), filtered_errors: errors, round: done + 1, max_rounds: cfg.refine_rounds });
+  }
+  const body = renderPrompt(role === "writer" ? "blind-write.md" : "repair.md", vars, role);
+  assertNoLeak(repo, runId, body, `${role} payload`, "Refusing to emit a blind payload that contains the implementation.");
+  if (role === "repair") round = latestRound(repo, runId, targetId2) + 1;
+  const { full } = storePayload(repo, { id: payloadId, role, run: runId, target: targetId2, bundle: id, round }, body);
+  return { payload: payloadId, full, target: targetId2, round };
+}
+function submitTests(repo, payloadId, files, notes) {
+  const { entry } = loadPayload(repo, payloadId);
+  requireRole(entry, ["writer", "repair", "baseline"]);
+  if (entry.consumed) throw rejected(`payload ${payloadId} was already used; emit a new one`);
+  const targetId2 = entry.target;
+  const t = loadTarget(repo, entry.run, targetId2);
+  if (!Array.isArray(files) || !files.length) throw rejected("no files submitted");
+  if (files.length > MAX_FILES) throw rejected(`too many files (${files.length} > ${MAX_FILES})`);
+  const total = files.reduce((n, f) => n + Buffer.byteLength(String(f.content ?? "")), 0);
+  if (total > MAX_BYTES) throw rejected(`files total ${total} bytes (> ${MAX_BYTES})`);
+  const problems = files.flatMap((f) => {
+    const p = checkFileName(String(f.path ?? ""), repo.config.test_file_pattern, t);
+    return p ? [p] : typeof f.content !== "string" || !f.content.trim() ? [`"${f.path}" is empty`] : [];
+  });
+  if (new Set(files.map((f) => f.path)).size !== files.length) problems.push("duplicate file names");
+  if (problems.length) throw rejected(`submission rejected:
+  ${problems.join("\n  ")}`);
+  consumePayload(repo, payloadId);
+  const prev = latestRound(repo, entry.run, targetId2);
+  const round = prev === null ? 0 : prev + 1;
+  const dir = generatedDir(repo, entry.run, targetId2, round);
+  fs12.mkdirSync(dir, { recursive: true });
+  if (entry.role === "repair" && prev !== null) {
+    for (const f of listFilesRecursive(generatedDir(repo, entry.run, targetId2, prev))) {
+      const name = path11.basename(f);
+      if (!isRoundMeta(name) && !files.some((s) => s.path === name)) fs12.copyFileSync(f, path11.join(dir, name));
+    }
+  }
+  for (const f of files) writeText(path11.join(dir, f.path), f.content.endsWith("\n") ? f.content : f.content + "\n");
+  if (notes?.trim()) writeText(path11.join(dir, "notes.md"), notes.trim() + "\n");
+  writeJson(path11.join(dir, "round.json"), { role: entry.role, payload: payloadId, at: nowIso() });
+  repo.ledger("tests_submitted", { run: entry.run, target: targetId2, round, role: entry.role, payload: payloadId, files: files.map((f) => f.path) });
+  return { message: `Stored ${files.length} test file${files.length === 1 ? "" : "s"} for ${targetId2} (round ${round}).`, target: targetId2, round, files: files.map((f) => f.path) };
+}
+function parseTextSubmission(text) {
+  const files = [];
+  const re = /^[ \t>*_#-]*FILE:\s*[`*"]*([^\s`*"]+)[`*"]*\s*\n+(`{3,}|~{3,})[^\n]*\n([\s\S]*?)\n\2[ \t]*$/gm;
+  let last = 0;
+  for (let m; m = re.exec(text); ) {
+    files.push({ path: m[1].trim(), content: m[3] + "\n" });
+    last = re.lastIndex;
+  }
+  const nm = /^[ \t*_#]*NOTES:?[*_]*[ \t]*\n?([\s\S]*)$/m.exec(text.slice(last));
+  return { files, notes: nm ? nm[1].trim() : "" };
+}
+function ingest(repo, payloadId, text) {
+  const { files, notes } = parseTextSubmission(text);
+  if (!files.length) throw rejected("no `FILE: <name>` + fenced code blocks found in the output");
+  return submitTests(repo, payloadId, files, notes);
+}
+var MAX_FILES, MAX_BYTES;
+var init_bundle = __esm({
+  "src/bundle.ts"() {
+    "use strict";
+    init_run();
+    init_spec();
+    init_payload();
+    init_repair();
+    init_schema();
+    init_util();
+    MAX_FILES = 20;
+    MAX_BYTES = 200 * 1024;
+  }
+});
+
+// src/lib.ts
+var init_lib = __esm({
+  "src/lib.ts"() {
+    "use strict";
+    init_repo();
+    init_env();
+    init_yaml();
+    init_schema();
+    init_util();
+    init_fixtures();
+    init_junit();
+    init_leak();
+    init_repair();
+    init_payload();
+    init_bundle();
+    init_spec();
   }
 });
 
 // src/verdicts.ts
-import * as fs9 from "node:fs";
+import * as fs13 from "node:fs";
 function loadVerdicts(repo, runId) {
   return readJson(runDir(repo, runId, "verdicts.json"), {});
 }
@@ -1299,7 +1777,7 @@ function unresolved(repo, runId) {
   const run2 = loadRun(repo, runId);
   const verdicts = loadVerdicts(repo, runId);
   const resultsFile = runDir(repo, runId, "results.json");
-  const results = fs9.existsSync(resultsFile) ? readJson(resultsFile) : null;
+  const results = fs13.existsSync(resultsFile) ? readJson(resultsFile) : null;
   const ledger = repo.readLedger().filter((e) => e.run === runId);
   const out = [];
   for (const [test, entry] of Object.entries(verdicts)) {
@@ -1357,8 +1835,8 @@ var init_status = __esm({
 });
 
 // src/exec.ts
-import * as fs10 from "node:fs";
-import * as path8 from "node:path";
+import * as fs14 from "node:fs";
+import * as path12 from "node:path";
 function repairPatterns(cfg) {
   const src = cfg.repair_error_patterns ?? DEFAULT_PATTERNS[FAMILY[cfg.language.toLowerCase()]] ?? Object.values(DEFAULT_PATTERNS).flat();
   return src.map((p) => new RegExp(p));
@@ -1402,7 +1880,7 @@ function fillCommand(cmd, vars) {
 }
 function mapCase(c, files) {
   const noExt = (p) => p.replace(/\.[^/.]+$/, "");
-  const stem = (p) => path8.posix.basename(p).split(".")[0];
+  const stem = (p) => path12.posix.basename(p).split(".")[0];
   const tryName = (cn) => {
     if (!cn) return void 0;
     const asPath = cn.replace(/\\/g, "/");
@@ -1441,26 +1919,26 @@ async function execRun(repo, runId, opts = {}) {
   const cfg = repo.config;
   const log = opts.log ?? ((s) => process.stderr.write(s + "\n"));
   const composedFile = runDir(repo, runId, "composed.json");
-  if (!fs10.existsSync(composedFile)) throw usage(`nothing composed for ${runId}; run \`tcheck compose ${runId}\` first`);
+  if (!fs14.existsSync(composedFile)) throw usage(`nothing composed for ${runId}; run \`tcheck compose ${runId}\` first`);
   const composed = readJson(composedFile).files;
   const n = run2.exec_count + 1;
   const env = commandEnv(cfg);
   const patterns = repairPatterns(cfg);
   const results = { exec: n, at: nowIso(), labels: {} };
   const files = [
-    ...composed.map((f) => ({ path: f.path, target: f.target, content: fs10.readFileSync(path8.join(runDir(repo, runId, "composed"), f.path), "utf8") })),
-    ...run2.existing.map((p) => ({ path: p, target: "existing", content: fs10.readFileSync(path8.join(repo.root, p), "utf8") }))
+    ...composed.map((f) => ({ path: f.path, target: f.target, content: fs14.readFileSync(path12.join(runDir(repo, runId, "composed"), f.path), "utf8") })),
+    ...run2.existing.map((p) => ({ path: p, target: "existing", content: fs14.readFileSync(path12.join(repo.root, p), "utf8") }))
   ];
-  const testDir = composed.length ? path8.posix.dirname(composed[0].path) : "";
+  const testDir = composed.length ? path12.posix.dirname(composed[0].path) : "";
   const runLabel = async (label, commit, reruns, patch, only) => {
     const wt = ensureWorktree(repo, commit, patch ? `${commit}-mutant` : commit);
     const lr = { commit, load_errors: [], timed_out: [], tests: {}, unmapped: 0 };
     const labelFiles = only ?? files;
     for (const f of composed) {
-      const src = path8.join(runDir(repo, runId, "composed"), f.path);
-      const dst = path8.join(wt.dir, f.path);
-      fs10.mkdirSync(path8.dirname(dst), { recursive: true });
-      fs10.copyFileSync(src, dst);
+      const src = path12.join(runDir(repo, runId, "composed"), f.path);
+      const dst = path12.join(wt.dir, f.path);
+      fs14.mkdirSync(path12.dirname(dst), { recursive: true });
+      fs14.copyFileSync(src, dst);
       wt.meta.composed.push(f.path);
     }
     wt.saveMeta();
@@ -1494,13 +1972,13 @@ async function execRun(repo, runId, opts = {}) {
     const perRerun = [];
     for (let k = 1; k <= reruns; k++) {
       const kdir = runDir(repo, runId, "exec", String(n), label, String(k));
-      fs10.rmSync(kdir, { recursive: true, force: true });
-      fs10.mkdirSync(kdir, { recursive: true });
-      const junit = path8.join(kdir, "junit.xml");
+      fs14.rmSync(kdir, { recursive: true, force: true });
+      fs14.mkdirSync(kdir, { recursive: true });
+      const junit = path12.join(kdir, "junit.xml");
       const cmd = fillCommand(cfg.commands.run, { ...vars, junit: q(junit) });
       log(`[${label}] run ${k}/${reruns}`);
       const r = await shell(cmd, { cwd: wt.dir, env, timeoutSec: timeout });
-      fs10.writeFileSync(path8.join(kdir, "output.txt"), `$ ${cmd}
+      fs14.writeFileSync(path12.join(kdir, "output.txt"), `$ ${cmd}
 exit ${r.code}${r.timedOut ? " (timeout)" : ""}
 
 ${r.stdout}
@@ -1529,9 +2007,9 @@ ${r.stderr}`);
     const ids = new Set(perRerun.flatMap((m) => [...m.keys()]));
     for (const id of ids) {
       const outcomes = perRerun.map((m, i) => m.get(id)?.c.outcome ?? (lr.timed_out.includes(i + 1) ? "error" : null));
-      const present = outcomes.filter((o) => o !== null);
+      const present2 = outcomes.filter((o) => o !== null);
       const first = perRerun.map((m) => m.get(id)).find(Boolean);
-      const final = new Set(present).size > 1 ? "flaky" : present[0];
+      const final = new Set(present2).size > 1 ? "flaky" : present2[0];
       const c = first.c;
       lr.tests[id] = { id, target: first.f.target, file: first.f.path, classname: c.classname, name: c.name, outcomes, final, type: c.type, message: c.message, text: c.text ? tail(c.text) : void 0 };
       if (isRepairable({ final, type: c.type, message: c.message, text: c.text }, patterns)) lr.tests[id].repairable = true;
@@ -1622,7 +2100,7 @@ async function runMutants(repo, run2, results, runLabel, log) {
 }
 function loadResults(repo, runId) {
   const f = runDir(repo, runId, "results.json");
-  if (!fs10.existsSync(f)) throw usage(`no results for ${runId}; run \`tcheck exec ${runId}\``);
+  if (!fs14.existsSync(f)) throw usage(`no results for ${runId}; run \`tcheck exec ${runId}\``);
   return readJson(f);
 }
 var DEFAULT_PATTERNS, FAMILY, q, tail;
@@ -1659,7 +2137,7 @@ var init_exec = __esm({
 });
 
 // src/classify.ts
-import * as fs11 from "node:fs";
+import * as fs15 from "node:fs";
 function outcomeOf(lr, id) {
   if (!lr) return "missing";
   const t = lr.tests[id];
@@ -1714,7 +2192,7 @@ function classify(repo, runId) {
       const target = loadTarget(repo, runId, bt.target);
       const unit = target.symbol.split(/[.:#]/).pop();
       const re = new RegExp(`\\b${unit.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
-      const pair = existing.filter((e) => re.test(fs11.readFileSync(`${repo.root}/${e.file}`, "utf8"))).map((e) => e.id);
+      const pair = existing.filter((e) => re.test(fs15.readFileSync(`${repo.root}/${e.file}`, "utf8"))).map((e) => e.id);
       if (pair.length) {
         qi.pair = pair;
         qi.reason += `; existing test(s) on the same unit pass: ${pair.map((p) => p.split("::").pop()).join(", ")}`;
@@ -1759,8 +2237,8 @@ var doctor_exports = {};
 __export(doctor_exports, {
   doctor: () => doctor
 });
-import * as fs12 from "node:fs";
-import * as path9 from "node:path";
+import * as fs16 from "node:fs";
+import * as path13 from "node:path";
 async function doctor(repo, opts) {
   const checks = [];
   const log = opts.log ?? ((s) => process.stderr.write(s + "\n"));
@@ -1777,13 +2255,13 @@ async function doctor(repo, opts) {
   else checks.push({ name: "source_globs", ok: true, detail: `e.g. ${src}` });
   const stand = { id: "tcheck-doctor", file: src ?? "doctor", symbol: "doctor" };
   const testDir = expandPath(cfg.test_dir, stand);
-  const name = (n) => path9.posix.join(testDir, expandPath(cfg.test_file_pattern, stand, n));
+  const name = (n) => path13.posix.join(testDir, expandPath(cfg.test_file_pattern, stand, n));
   let files;
   if (opts.use?.length) {
     files = opts.use.map((p) => {
-      const abs = path9.resolve(p);
-      if (!fs12.existsSync(abs)) throw new TcheckError(`--use file not found: ${p}`, EXIT.USAGE);
-      return { path: path9.posix.join(testDir, path9.basename(abs)), content: fs12.readFileSync(abs, "utf8") };
+      const abs = path13.resolve(p);
+      if (!fs16.existsSync(abs)) throw new TcheckError(`--use file not found: ${p}`, EXIT.USAGE);
+      return { path: path13.posix.join(testDir, path13.basename(abs)), content: fs16.readFileSync(abs, "utf8") };
     });
   } else {
     const tpl = TEMPLATES.find((t) => t.match.test(cfg.framework));
@@ -1795,18 +2273,18 @@ async function doctor(repo, opts) {
         EXIT.USAGE
       );
     }
-    const pkgDir = src ? path9.posix.dirname(src) : ".";
-    const goPkg = src && fs12.existsSync(path9.join(repo.root, src)) ? /^package\s+(\w+)/m.exec(fs12.readFileSync(path9.join(repo.root, src), "utf8"))?.[1] : void 0;
-    files = tpl.files({ name, pkg: goPkg ?? path9.posix.basename(pkgDir), javaPkg: packagePath(stand.file).replace(/\//g, ".") }).map((f) => ({ path: name(f.n), content: f.content }));
+    const pkgDir = src ? path13.posix.dirname(src) : ".";
+    const goPkg = src && fs16.existsSync(path13.join(repo.root, src)) ? /^package\s+(\w+)/m.exec(fs16.readFileSync(path13.join(repo.root, src), "utf8"))?.[1] : void 0;
+    files = tpl.files({ name, pkg: goPkg ?? path13.posix.basename(pkgDir), javaPkg: packagePath(stand.file).replace(/\//g, ".") }).map((f) => ({ path: name(f.n), content: f.content }));
   }
   const snapId = `doctor-${randHex(6)}`;
   const commit = snapshotWorktree(repo, snapId);
   const wt = ensureWorktree(repo, commit);
   try {
     for (const f of files) {
-      const dst = path9.join(wt.dir, f.path);
-      fs12.mkdirSync(path9.dirname(dst), { recursive: true });
-      fs12.writeFileSync(dst, f.content);
+      const dst = path13.join(wt.dir, f.path);
+      fs16.mkdirSync(path13.dirname(dst), { recursive: true });
+      fs16.writeFileSync(dst, f.content);
       wt.meta.composed.push(f.path);
     }
     wt.saveMeta();
@@ -1814,9 +2292,9 @@ async function doctor(repo, opts) {
     const env = commandEnv(cfg);
     const timeout = cfg.timeouts.per_command_seconds;
     const junitDir = repo.p("runs", "_doctor");
-    fs12.rmSync(junitDir, { recursive: true, force: true });
-    fs12.mkdirSync(junitDir, { recursive: true });
-    const junit = path9.join(junitDir, "junit.xml");
+    fs16.rmSync(junitDir, { recursive: true, force: true });
+    fs16.mkdirSync(junitDir, { recursive: true });
+    const junit = path13.join(junitDir, "junit.xml");
     const vars = { files: files.map((f) => f.path).join(" "), junit, test_dir: testDir, root: wt.dir };
     for (const step of ["setup", "compile"]) {
       const cmd = cfg.commands[step];
@@ -1859,9 +2337,9 @@ ${output}` : "The failing test did not fail: check that {files} is honoured and 
     });
     return { ok, checks, code: ok ? EXIT.OK : EXIT.COMMAND };
   } finally {
-    for (const f of wt.meta.composed) fs12.rmSync(path9.join(wt.dir, f), { force: true });
+    for (const f of wt.meta.composed) fs16.rmSync(path13.join(wt.dir, f), { force: true });
     repo.git(["worktree", "remove", "--force", wt.dir], { allowFail: true });
-    fs12.rmSync(repo.p("worktrees", "_cache", `${commit}.json`), { force: true });
+    fs16.rmSync(repo.p("worktrees", "_cache", `${commit}.json`), { force: true });
     repo.git(["update-ref", "-d", `refs/tcheck/${snapId}/worktree`], { allowFail: true });
   }
 }
@@ -1880,7 +2358,7 @@ var init_doctor = __esm({
     init_junit();
     init_run();
     init_util();
-    cls = (file) => path9.basename(file).replace(/\..*$/, "");
+    cls = (file) => path13.basename(file).replace(/\..*$/, "");
     TEMPLATES = [
       { match: /pytest/i, files: () => [{ n: 1, content: "def test_tcheck_doctor_pass():\n    assert 1 + 1 == 2\n\n\ndef test_tcheck_doctor_fail():\n    assert 1 + 1 == 3\n" }] },
       {
@@ -1969,6 +2447,8 @@ var init_commands = __esm({
     init_exec();
     init_classify();
     init_util();
+    init_spec();
+    init_bundle();
     repoOf = (a) => Repo.open({ root: str(a, "root") });
     register("doctor", async (a) => {
       const repo = Repo.open({ root: str(a, "root") });
@@ -1988,6 +2468,49 @@ var init_commands = __esm({
     register("target add", (a) => {
       const t = targetAdd(repoOf(a), need(a, 1, "run"), need(a, 2, "file::symbol"), str(a, "lines") ?? "", str(a, "rev"));
       return { data: { target: t.id, file: t.file, symbol: t.symbol, lines: t.lines, rev: t.rev, body_sha: t.body_sha }, human: t.id };
+    });
+    register("context set", (a) => {
+      const r = contextSet(repoOf(a), need(a, 1, "run"), need(a, 2, "target"), str(a, "file") ?? need(a, 3, "--file"));
+      return { data: r, human: `Context saved for ${r.target}. Leak check: passed.` };
+    });
+    register("spec prompt", (a) => {
+      const p = specPrompt(repoOf(a), need(a, 1, "run"), need(a, 2, "target"), str(a, "intent"));
+      return { data: { payload: p.id, text: p.full }, human: p.full };
+    });
+    register("spec save", (a) => {
+      const from = str(a, "from");
+      if (!from) throw usage("spec save needs --from FILE (or - for stdin)");
+      const r = specSave(repoOf(a), need(a, 1, "run"), need(a, 2, "target"), readInput(from));
+      return { data: r, human: `Spec saved for ${r.target}. Leak check: passed.` };
+    });
+    register("spec show", (a) => {
+      const r = specShow(repoOf(a), need(a, 1, "run"), need(a, 2, "target"));
+      return { data: r, human: r.spec + (r.analysis ? `
+
+--- spec-extractor suspicions ---
+${r.analysis}` : "") };
+    });
+    register("spec edit", (a) => {
+      const from = str(a, "from");
+      if (!from) throw usage("spec edit needs --from FILE (or - for stdin)");
+      const r = specEdit(repoOf(a), need(a, 1, "run"), need(a, 2, "target"), readInput(from));
+      return { data: r, human: `Spec updated for ${r.target}. ${r.note}` };
+    });
+    register("bundle build", (a) => {
+      const r = bundleBuild(repoOf(a), need(a, 1, "run"), need(a, 2, "target"));
+      return { data: r, human: r.bundle };
+    });
+    register("bundle emit", (a) => {
+      const via = str(a, "via");
+      if (via && via !== "tool" && via !== "text") throw usage("--via must be tool or text");
+      const r = bundleEmit(repoOf(a), need(a, 1, "bundle"), str(a, "role") ?? "", { run: str(a, "run"), via });
+      return { data: { payload: r.payload, target: r.target, round: r.round, text: r.full }, human: r.full };
+    });
+    register("ingest", (a) => {
+      const from = str(a, "from");
+      if (!from) throw usage("ingest needs --from FILE (or - for stdin)");
+      const r = ingest(repoOf(a), need(a, 1, "payload"), readInput(from));
+      return { data: r, human: r.message };
     });
     register("compose", (a) => {
       const r = compose(repoOf(a), need(a, 1, "run"));
@@ -2013,7 +2536,7 @@ ${r.setup_error}`] : []).join("\n");
 });
 
 // src/cli.ts
-import * as fs13 from "node:fs";
+import * as fs17 from "node:fs";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 function parseArgs(argv) {
   const a = { _: [], flags: {} };
@@ -2085,7 +2608,7 @@ async function loadCommands() {
 function isMain() {
   if (!process.argv[1]) return false;
   try {
-    return fs13.realpathSync(process.argv[1]) === fs13.realpathSync(fileURLToPath2(import.meta.url));
+    return fs17.realpathSync(process.argv[1]) === fs17.realpathSync(fileURLToPath2(import.meta.url));
   } catch {
     return false;
   }
@@ -2151,24 +2674,32 @@ export {
   detectHarness,
   dirtyFiles,
   findRoot,
+  frame,
   globToRegex,
   list,
   listFixtures,
   loadFixture,
+  loadPayload,
   main,
   matchGlobs,
   normalize,
   parseArgs,
   parseConfig,
+  parseFrame,
   parseJUnit,
+  parseSpecOutput,
+  parseTextSubmission,
   parseYaml,
+  payloadIndex,
   pluginRoot,
   redactLeaks,
   redactRepairText,
   register,
+  renderTemplate,
   resolveBackend,
   signatureLineCount,
   significantLines,
   str,
+  submitTests,
   validate
 };

@@ -4,7 +4,9 @@ import { Repo } from "./repo";
 import { runStart, targetAdd, compose } from "./run";
 import { execRun } from "./exec";
 import { classify } from "./classify";
-import { usage } from "./util";
+import { readInput, usage } from "./util";
+import { contextSet, specEdit, specPrompt, specSave, specShow } from "./spec";
+import { bundleBuild, bundleEmit, ingest } from "./bundle";
 
 const repoOf = (a: Args) => Repo.open({ root: str(a, "root") });
 function need(a: Args, i: number, name: string): string {
@@ -31,6 +33,55 @@ register("run start", (a) => {
 register("target add", (a) => {
   const t = targetAdd(repoOf(a), need(a, 1, "run"), need(a, 2, "file::symbol"), str(a, "lines") ?? "", str(a, "rev"));
   return { data: { target: t.id, file: t.file, symbol: t.symbol, lines: t.lines, rev: t.rev, body_sha: t.body_sha }, human: t.id };
+});
+
+register("context set", (a) => {
+  const r = contextSet(repoOf(a), need(a, 1, "run"), need(a, 2, "target"), str(a, "file") ?? need(a, 3, "--file"));
+  return { data: r, human: `Context saved for ${r.target}. Leak check: passed.` };
+});
+
+register("spec prompt", (a) => {
+  const p = specPrompt(repoOf(a), need(a, 1, "run"), need(a, 2, "target"), str(a, "intent"));
+  return { data: { payload: p.id, text: p.full }, human: p.full };
+});
+
+register("spec save", (a) => {
+  const from = str(a, "from");
+  if (!from) throw usage("spec save needs --from FILE (or - for stdin)");
+  const r = specSave(repoOf(a), need(a, 1, "run"), need(a, 2, "target"), readInput(from));
+  return { data: r, human: `Spec saved for ${r.target}. Leak check: passed.` };
+});
+
+register("spec show", (a) => {
+  const r = specShow(repoOf(a), need(a, 1, "run"), need(a, 2, "target"));
+  return { data: r, human: r.spec + (r.analysis ? `\n\n--- spec-extractor suspicions ---\n${r.analysis}` : "") };
+});
+
+register("spec edit", (a) => {
+  const from = str(a, "from");
+  if (!from) throw usage("spec edit needs --from FILE (or - for stdin)");
+  const r = specEdit(repoOf(a), need(a, 1, "run"), need(a, 2, "target"), readInput(from));
+  return { data: r, human: `Spec updated for ${r.target}. ${r.note}` };
+});
+
+register("bundle build", (a) => {
+  const r = bundleBuild(repoOf(a), need(a, 1, "run"), need(a, 2, "target"));
+  return { data: r, human: r.bundle };
+});
+
+register("bundle emit", (a) => {
+  const via = str(a, "via");
+  if (via && via !== "tool" && via !== "text") throw usage("--via must be tool or text");
+  const r = bundleEmit(repoOf(a), need(a, 1, "bundle"), (str(a, "role") ?? "") as any, { run: str(a, "run"), via: via as any });
+  // The payload is printed exactly; the agent passes it verbatim to the blind role.
+  return { data: { payload: r.payload, target: r.target, round: r.round, text: r.full }, human: r.full };
+});
+
+register("ingest", (a) => {
+  const from = str(a, "from");
+  if (!from) throw usage("ingest needs --from FILE (or - for stdin)");
+  const r = ingest(repoOf(a), need(a, 1, "payload"), readInput(from));
+  return { data: r, human: r.message };
 });
 
 register("compose", (a) => {

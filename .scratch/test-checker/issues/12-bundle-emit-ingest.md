@@ -4,7 +4,7 @@
 
 **Blocked by:** 05 — Exec hardening, 11 — Template renderer, payloads and spec commands
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] A consumed payload cannot be reused
 - [ ] A repair payload never contains `<failure>` text or body lines
