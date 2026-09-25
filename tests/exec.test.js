@@ -117,3 +117,16 @@ test("repair redaction strips assertion lines, got-values and body lines, and tr
   assert.match(out, /keep me/);
   assert.ok(redactRepairText("x".repeat(10000), [target]).length <= 4096 + 40);
 });
+
+test("a per-test timeout (fixture conftest) isolates one hanging test from the rest of the run", () => {
+  const { dir, run, target } = fixtureRun("off_by_one");
+  setConfig(dir, (c) => c.replace("flake_reruns: 2", "flake_reruns: 1"));
+  dropTests(dir, run, target, { "test_sum_to_1.py": `${IMPORT}def test_huge_n():\n    n = 10**30\n    assert sum_to(n) == n * (n + 1) // 2\n\ndef test_includes_n():\n    assert sum_to(3) == 6\n` });
+  tcheck(dir, ["compose", run]);
+  assert.equal(tcheck(dir, ["exec", run]).code, 0);
+  const cls = tcheck(dir, ["classify", run, "--json"]).json;
+  assert.equal(cls.tests.find((t) => t.name === "test_includes_n").category, "effective");
+  const huge = cls.tests.find((t) => t.name === "test_huge_n");
+  assert.equal(huge.category, "broken");
+  assert.deepEqual(huge.outcomes, { buggy: "failure", fixed: "failure" });
+});

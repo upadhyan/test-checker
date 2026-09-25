@@ -5,6 +5,7 @@ import { specSave } from "./spec";
 import { adjudicateSave } from "./adjudicate";
 import { loadPayload, requireRole } from "./payload";
 import { TcheckError, envMissing } from "./util";
+import { debugLog } from "./hooks";
 
 /** Protocol versions we speak; the client's choice wins when we know it (VERIFY against current Claude Code). */
 const PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
@@ -97,6 +98,7 @@ export function handle(msg: any): any | undefined {
       return reply({ tools: TOOLS });
     case "tools/call": {
       const { name, arguments: args } = msg.params ?? {};
+      debugLog({ mcp: "call", name });
       try {
         return reply({ content: [{ type: "text", text: callTool(name, args ?? {}) }], isError: false });
       } catch (e: any) {
@@ -113,6 +115,7 @@ export function handle(msg: any): any | undefined {
 }
 
 export function serve(): Promise<void> {
+  debugLog({ mcp: "start", cwd: process.cwd(), CLAUDE_PROJECT_DIR: process.env.CLAUDE_PROJECT_DIR ?? null, CLAUDE_PLUGIN_ROOT: process.env.CLAUDE_PLUGIN_ROOT ?? null });
   return new Promise((resolve) => {
     const rl = readline.createInterface({ input: process.stdin, terminal: false });
     rl.on("line", (line) => {

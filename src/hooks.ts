@@ -212,10 +212,20 @@ export async function runHookCli(event: string, harnessFlag?: string, root?: str
     process.stderr.write(`tcheck hook ${event}: unreadable input: ${e?.message ?? e}\n`);
     return;
   }
+  debugLog({ hook: event, input: raw });
   const d = evaluateHook(normalize(event as HookEvent, raw), { root });
   const out = hookOutput(d, detectHarness(harnessFlag));
   if (out.stdout) process.stdout.write(out.stdout + "\n");
   if (out.stderr) process.stderr.write(out.stderr + "\n");
+}
+
+/** Opt-in trace for confirming harness behaviour (VERIFY items): TCHECK_DEBUG_LOG=<file>. */
+export function debugLog(entry: Record<string, unknown>): void {
+  const f = process.env.TCHECK_DEBUG_LOG;
+  if (!f) return;
+  try {
+    fs.appendFileSync(f, JSON.stringify({ ts: nowIso(), pid: process.pid, ...entry }) + "\n");
+  } catch {}
 }
 
 export { globToRegex };

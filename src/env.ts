@@ -11,13 +11,14 @@ const HARNESSES: Harness[] = ["claude-code", "cowork", "codex", "opencode", "pi"
 export function detectHarness(flag?: string, env: NodeJS.ProcessEnv = process.env): Harness {
   const explicit = flag ?? env.TCHECK_HARNESS;
   if (explicit && HARNESSES.includes(explicit as Harness)) return explicit as Harness;
-  const claude = env.CLAUDECODE === "1" || !!env.CLAUDE_PLUGIN_ROOT;
-  if (claude) {
+  // Codex gives plugin hooks PLUGIN_ROOT *and* CLAUDE_PLUGIN_ROOT (compat), so CLAUDECODE is the reliable Claude signal
+  // and Codex markers win over a bare CLAUDE_PLUGIN_ROOT.
+  const codex = !!env.PLUGIN_ROOT || Object.keys(env).some((k) => k.startsWith("CODEX_") && k !== "CODEX_HOME");
+  if (env.CLAUDECODE === "1" || (env.CLAUDE_PLUGIN_ROOT && !codex)) {
     // VERIFY: Cowork's marker. Claude Code sets CLAUDE_CODE_ENTRYPOINT (cli, sdk-ts, claude-desktop, …).
     return /cowork/i.test(env.CLAUDE_CODE_ENTRYPOINT ?? "") ? "cowork" : "claude-code";
   }
-  if (env.PLUGIN_ROOT || Object.keys(env).some((k) => k.startsWith("CODEX_") && k !== "CODEX_HOME")) return "codex";
-  return "unknown";
+  return codex ? "codex" : "unknown";
 }
 
 export type Backend = "native" | "api" | "codex" | "claude" | "opencode" | "pi" | "none";

@@ -38,6 +38,8 @@ test("harness detection precedence", () => {
   assert.equal(detectHarness(undefined, { TCHECK_HARNESS: "opencode", CLAUDECODE: "1" }), "opencode");
   assert.equal(detectHarness(undefined, { CLAUDECODE: "1" }), "claude-code");
   assert.equal(detectHarness(undefined, { PLUGIN_ROOT: "/x" }), "codex");
+  assert.equal(detectHarness(undefined, { PLUGIN_ROOT: "/x", CLAUDE_PLUGIN_ROOT: "/x" }), "codex", "Codex hooks get both roots");
+  assert.equal(detectHarness(undefined, { CLAUDE_PLUGIN_ROOT: "/x" }), "claude-code");
   assert.equal(detectHarness(undefined, {}), "unknown");
 });
 

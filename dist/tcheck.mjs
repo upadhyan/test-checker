@@ -661,12 +661,11 @@ import * as path4 from "node:path";
 function detectHarness(flag, env = process.env) {
   const explicit = flag ?? env.TCHECK_HARNESS;
   if (explicit && HARNESSES.includes(explicit)) return explicit;
-  const claude = env.CLAUDECODE === "1" || !!env.CLAUDE_PLUGIN_ROOT;
-  if (claude) {
+  const codex = !!env.PLUGIN_ROOT || Object.keys(env).some((k) => k.startsWith("CODEX_") && k !== "CODEX_HOME");
+  if (env.CLAUDECODE === "1" || env.CLAUDE_PLUGIN_ROOT && !codex) {
     return /cowork/i.test(env.CLAUDE_CODE_ENTRYPOINT ?? "") ? "cowork" : "claude-code";
   }
-  if (env.PLUGIN_ROOT || Object.keys(env).some((k) => k.startsWith("CODEX_") && k !== "CODEX_HOME")) return "codex";
-  return "unknown";
+  return codex ? "codex" : "unknown";
 }
 function resolveBackend(configured, harness, apiKeyEnv) {
   if (configured && configured !== "auto") return configured;
@@ -1788,7 +1787,7 @@ function commandEnv(cfg) {
   return env;
 }
 function fillCommand(cmd, vars) {
-  return cmd.replace(/\{(files|junit|test_dir|root)\}/g, (_, k) => vars[k]);
+  return cmd.replace(/\{(files|junit|test_dir|root|per_test_seconds)\}/g, (m, k) => vars[k] ?? m);
 }
 function mapCase(c, files) {
   const noExt = (p) => p.replace(/\.[^/.]+$/, "");
@@ -1861,7 +1860,7 @@ async function execRun(repo, runId, opts = {}) {
         return lr;
       }
     }
-    const vars = { files: labelFiles.map((f) => q(f.path)).join(" "), test_dir: testDir, root: wt.dir, junit: "" };
+    const vars = { files: labelFiles.map((f) => q(f.path)).join(" "), test_dir: testDir, root: wt.dir, junit: "", per_test_seconds: String(cfg.timeouts.per_test_seconds) };
     const timeout = cfg.timeouts.per_command_seconds;
     if (cfg.commands.setup && !wt.meta.setup_done) {
       log(`[${label}] setup: ${cfg.commands.setup}`);
@@ -1915,6 +1914,7 @@ ${r.stderr}`);
         }
       }
       perRerun.push(seen);
+      if (r.timedOut) break;
     }
     const ids = new Set(perRerun.flatMap((m) => [...m.keys()]));
     for (const id of ids) {
@@ -2508,10 +2508,19 @@ async function runHookCli(event, harnessFlag, root) {
 `);
     return;
   }
+  debugLog({ hook: event, input: raw });
   const d = evaluateHook(normalize2(event, raw), { root });
   const out = hookOutput(d, detectHarness(harnessFlag));
   if (out.stdout) process.stdout.write(out.stdout + "\n");
   if (out.stderr) process.stderr.write(out.stderr + "\n");
+}
+function debugLog(entry) {
+  const f = process.env.TCHECK_DEBUG_LOG;
+  if (!f) return;
+  try {
+    fs17.appendFileSync(f, JSON.stringify({ ts: nowIso(), pid: process.pid, ...entry }) + "\n");
+  } catch {
+  }
 }
 var HOOK_EVENTS, BLIND_AGENTS, HANDOFF_DENY;
 var init_hooks = __esm({
@@ -2580,6 +2589,7 @@ function handle(msg) {
       return reply({ tools: TOOLS });
     case "tools/call": {
       const { name, arguments: args } = msg.params ?? {};
+      debugLog({ mcp: "call", name });
       try {
         return reply({ content: [{ type: "text", text: callTool(name, args ?? {}) }], isError: false });
       } catch (e) {
@@ -2594,6 +2604,7 @@ function handle(msg) {
   }
 }
 function serve() {
+  debugLog({ mcp: "start", cwd: process.cwd(), CLAUDE_PROJECT_DIR: process.env.CLAUDE_PROJECT_DIR ?? null, CLAUDE_PLUGIN_ROOT: process.env.CLAUDE_PLUGIN_ROOT ?? null });
   return new Promise((resolve3) => {
     const rl = readline.createInterface({ input: process.stdin, terminal: false });
     rl.on("line", (line) => {
@@ -2623,6 +2634,7 @@ var init_mcp = __esm({
     init_adjudicate();
     init_payload();
     init_util();
+    init_hooks();
     PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
     INTERNAL = "For test-checker's internal roles only; never call this yourself.";
     TOOLS = [
@@ -2746,7 +2758,7 @@ async function runBackend(backend, prompt, opts = {}) {
     if (r.code !== 0) throw new TcheckError(`${backend} exited ${r.code}: ${(r.stderr || r.stdout).trim().slice(-800)}`, EXIT.COMMAND);
     const text = outFile && fs18.existsSync(outFile) ? fs18.readFileSync(outFile, "utf8") : r.stdout;
     if (outFile) fs18.rmSync(outFile, { force: true });
-    if (!text.trim()) throw new TcheckError(`${backend} returned no text`, EXIT.COMMAND);
+    if (!text.trim()) throw new TcheckError(`${backend} returned no text${r.stderr.trim() ? `: ${r.stderr.trim().split("\n").slice(-3).join(" | ").slice(-600)}` : ""}`, EXIT.COMMAND);
     return text;
   } finally {
     fs18.rmSync(tmp, { recursive: true, force: true });

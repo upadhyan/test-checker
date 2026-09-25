@@ -15,14 +15,16 @@ function repoAt(cwd) {
  * VERIFY 9 (confirmed against pi 0.84 docs, examples/extensions/summarize.ts): ctx.modelRegistry.complete(model, {messages})
  * is a tool-less completion. Falls back to the headless `pi -p --no-tools` backend.
  */
-async function complete(ctx, prompt) {
-  const model = ctx.model;
+async function complete(ctx, prompt, repo) {
+  // blind.model (provider/id) overrides the session model.
+  const [prov, id] = (repo?.config.blind.model ?? "").split("/");
+  const model = (prov && id && ctx.modelRegistry?.find?.(prov, id)) || ctx.model;
   if (model && ctx.modelRegistry?.complete) {
     const res = await ctx.modelRegistry.complete(model, { messages: [{ role: "user", content: [{ type: "text", text: prompt }], timestamp: Date.now() }] }, { cacheRetention: "none" });
     const text = (res.content ?? []).filter((c) => c.type === "text").map((c) => c.text).join("\n");
     if (text.trim()) return text;
   }
-  return runBackend("pi", prompt);
+  return runBackend("pi", prompt, { model: repo?.config.blind.model });
 }
 
 const text = (t) => ({ content: [{ type: "text", text: t }], details: {} });
@@ -43,23 +45,23 @@ export default function (pi) {
     execute: guard(async ({ run, target, intent }, ctx) => {
       const repo = repoAt(ctx.cwd);
       const p = specPrompt(repo, run, target, intent);
-      const r = specSave(repo, run, target, await complete(ctx, p.full));
+      const r = specSave(repo, run, target, await complete(ctx, p.full, repo));
       return `Spec saved for ${target}. Leak check: passed.\n\n${r.spec}`;
     }),
   });
 
   const blind = (role) =>
-    guard(async ({ bundle, run }, ctx) => {
+    guard(async ({ bundle_id, run }, ctx) => {
       const repo = repoAt(ctx.cwd);
-      const p = bundleEmit(repo, bundle, role, { run, via: "text" });
-      return ingest(repo, p.payload, await complete(ctx, p.full)).message;
+      const p = bundleEmit(repo, bundle_id, role, { run, via: "text" });
+      return ingest(repo, p.payload, await complete(ctx, p.full, repo)).message;
     });
 
   pi.registerTool({
     name: "tcheck_blind_generate",
     label: "test-checker: blind tests",
     description: "Write unit tests for a frozen test-checker bundle WITHOUT the implementation. Pass only the bundle id; the payload is loaded in code.",
-    parameters: Type.Object({ bundle: Type.String(), run: Type.Optional(Type.String()) }),
+    parameters: Type.Object({ bundle_id: Type.String(), run: Type.Optional(Type.String()) }),
     execute: blind("writer"),
   });
 
@@ -67,7 +69,7 @@ export default function (pi) {
     name: "tcheck_blind_repair",
     label: "test-checker: blind repair",
     description: "Fix compile/import/setup errors in blind tests for a bundle, without the implementation or assertion failures.",
-    parameters: Type.Object({ bundle: Type.String(), run: Type.Optional(Type.String()) }),
+    parameters: Type.Object({ bundle_id: Type.String(), run: Type.Optional(Type.String()) }),
     execute: blind("repair"),
   });
 
@@ -75,11 +77,11 @@ export default function (pi) {
     name: "tcheck_adjudicate",
     label: "test-checker: adjudicate",
     description: "Decide whether a failing blind test or the code is wrong (test-checker adjudicator role). Saves and returns the verdict.",
-    parameters: Type.Object({ run: Type.String(), test: Type.String() }),
-    execute: guard(async ({ run, test }, ctx) => {
+    parameters: Type.Object({ run: Type.String(), test_id: Type.String() }),
+    execute: guard(async ({ run, test_id: test }, ctx) => {
       const repo = repoAt(ctx.cwd);
       const p = adjudicatePrompt(repo, run, test);
-      return adjudicateSave(repo, run, test, await complete(ctx, p.full)).message;
+      return adjudicateSave(repo, run, test, await complete(ctx, p.full, repo)).message;
     }),
   });
 

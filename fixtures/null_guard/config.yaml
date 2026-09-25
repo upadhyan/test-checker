@@ -11,3 +11,6 @@ flake_reruns: 2
 spec:
   source: buggy
 gate: off
+timeouts:
+  per_test_seconds: 10
+  per_command_seconds: 120

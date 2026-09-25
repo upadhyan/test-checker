@@ -50,7 +50,7 @@ export function commandEnv(cfg: Config): NodeJS.ProcessEnv {
 const q = (p: string) => (/[\s"'$`\\]/.test(p) ? (isWin ? `"${p}"` : `'${p.replace(/'/g, `'\\''`)}'`) : p);
 
 export function fillCommand(cmd: string, vars: Record<string, string>): string {
-  return cmd.replace(/\{(files|junit|test_dir|root)\}/g, (_, k) => vars[k]);
+  return cmd.replace(/\{(files|junit|test_dir|root|per_test_seconds)\}/g, (m, k) => vars[k] ?? m);
 }
 
 export interface TestResult {
@@ -176,7 +176,7 @@ export async function execRun(repo: Repo, runId: string, opts: { log?: (s: strin
         return lr;
       }
     }
-    const vars = { files: labelFiles.map((f) => q(f.path)).join(" "), test_dir: testDir, root: wt.dir, junit: "" };
+    const vars = { files: labelFiles.map((f) => q(f.path)).join(" "), test_dir: testDir, root: wt.dir, junit: "", per_test_seconds: String(cfg.timeouts.per_test_seconds) };
     const timeout = cfg.timeouts.per_command_seconds;
     if (cfg.commands.setup && !wt.meta.setup_done) {
       log(`[${label}] setup: ${cfg.commands.setup}`);
@@ -228,6 +228,7 @@ export async function execRun(repo: Repo, runId: string, opts: { log?: (s: strin
         }
       }
       perRerun.push(seen);
+      if (r.timedOut) break; // the next rerun would hang the same way
     }
     // Merge reruns: identical outcomes → that outcome; differing → flaky (engine-spec §8.3).
     const ids = new Set(perRerun.flatMap((m) => [...m.keys()]));

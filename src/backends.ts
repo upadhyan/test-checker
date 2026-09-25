@@ -95,7 +95,7 @@ export async function runBackend(backend: Backend, prompt: string, opts: Backend
     if (r.code !== 0) throw new TcheckError(`${backend} exited ${r.code}: ${(r.stderr || r.stdout).trim().slice(-800)}`, EXIT.COMMAND);
     const text = outFile && fs.existsSync(outFile) ? fs.readFileSync(outFile, "utf8") : r.stdout;
     if (outFile) fs.rmSync(outFile, { force: true });
-    if (!text.trim()) throw new TcheckError(`${backend} returned no text`, EXIT.COMMAND);
+    if (!text.trim()) throw new TcheckError(`${backend} returned no text${r.stderr.trim() ? `: ${r.stderr.trim().split("\n").slice(-3).join(" | ").slice(-600)}` : ""}`, EXIT.COMMAND);
     return text;
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
