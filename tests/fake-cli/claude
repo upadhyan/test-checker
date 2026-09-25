@@ -1,0 +1,20 @@
+#!/usr/bin/env node
+// Fake `claude -p` for offline tests: canned answers by payload role, and a log of how it was called.
+import * as fs from "node:fs";
+const prompt = fs.readFileSync(0, "utf8");
+const role = (/role=(\w+)/.exec(prompt) || [])[1];
+if (process.env.FAKE_CLI_LOG) {
+  fs.appendFileSync(process.env.FAKE_CLI_LOG, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), files: fs.readdirSync(process.cwd()), role, prompt }) + "\n");
+}
+const imp = "from fx.stats import sum_to\n\n";
+const tests = (body) => "Here are the tests.\n\nFILE: test_sum_to_1.py\n```python\n" + imp + body + "```\n";
+if (role === "spec") {
+  process.stdout.write("<analysis>\nLogical mistakes: the loop omits n.\nRobustness omissions: none found\n</analysis>\n<spec>\nsum_to(n) returns the sum of the integers 1 through n inclusive; 0 for n == 0; ValueError for n < 0.\n</spec>\n");
+} else if (role === "writer") {
+  process.stdout.write(tests("def test_includes_n():\n    assert sum_to(3) == 6\n\ndef test_zero():\n    assert sum_to(0) == 0\n"));
+} else if (role === "baseline") {
+  process.stdout.write(tests("def test_three():\n    assert sum_to(3) == 3\n\ndef test_zero():\n    assert sum_to(0) == 0\n"));
+} else {
+  process.stderr.write("fake claude: unexpected prompt\n");
+  process.exit(1);
+}

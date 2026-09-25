@@ -15,3 +15,4 @@ export { mapRange, parseVerdict } from "./adjudicate";
 export { evaluateHook, normalize as normalizeHookEvent, hookOutput, editedPaths, protectGlobs } from "./hooks";
 export type { Decision, NormalizedEvent } from "./hooks";
 export { callTool, TOOLS as MCP_TOOLS, handle as handleMcp } from "./mcp";
+export { runBackend, childEnv } from "./backends";

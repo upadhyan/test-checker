@@ -39,6 +39,18 @@ register("hook", async (a) => {
   return { data: undefined, code: 0 };
 });
 
+register("blind-run", async (a) => {
+  const { blindRun } = await import("./backends");
+  const r = await blindRun(repoOf(a), need(a, 1, "bundle"), (str(a, "role") ?? "") as any, { run: str(a, "run"), backend: str(a, "backend"), harness: str(a, "harness") });
+  return { data: r, human: `${r.message} (backend: ${r.backend}, isolation: ${r.isolation})` };
+});
+
+register("selftest", async (a) => {
+  const { selftest } = await import("./selftest");
+  const r = await selftest({ backend: str(a, "backend"), fixtures: list(a, "fixtures"), log: bool(a, "quiet") ? () => {} : undefined });
+  return { data: r, human: r.table, code: r.code };
+});
+
 register("mcp", async () => {
   await serve();
   return { data: undefined };

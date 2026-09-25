@@ -1040,17 +1040,17 @@ function commonLines(repo, runId) {
   if (cache && fs8.existsSync(cache)) return new Set(readJson(cache));
   const minLen = repo.config.leak.min_line_length;
   const files = repo.git(["ls-files", "-z"], { allowFail: true }).split("\0").filter((f) => f && matchGlobs(f, repo.config.source_globs));
-  const counts = /* @__PURE__ */ new Map();
+  const counts2 = /* @__PURE__ */ new Map();
   for (const f of files) {
     const p = path7.join(repo.root, f);
     try {
       if (fs8.statSync(p).size > 1e6) continue;
       const seen = new Set(fs8.readFileSync(p, "utf8").split(/\r?\n/).map(normalize).filter((l) => l.length >= minLen));
-      for (const l of seen) counts.set(l, (counts.get(l) ?? 0) + 1);
+      for (const l of seen) counts2.set(l, (counts2.get(l) ?? 0) + 1);
     } catch {
     }
   }
-  const top = [...counts.entries()].filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, 200).map(([l]) => l);
+  const top = [...counts2.entries()].filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, 200).map(([l]) => l);
   if (cache) writeJson(cache, top);
   return new Set(top);
 }
@@ -1959,9 +1959,9 @@ ${r.stderr}`);
   }
   const summary = Object.fromEntries(
     Object.entries(results.labels).map(([l, r]) => {
-      const counts = {};
-      for (const t of Object.values(r.tests)) counts[t.final] = (counts[t.final] ?? 0) + 1;
-      return [l, { ...counts, load_errors: r.load_errors.length, ...r.compile_error ? { compile_error: true } : {}, ...r.setup_error ? { setup_error: true } : {} }];
+      const counts2 = {};
+      for (const t of Object.values(r.tests)) counts2[t.final] = (counts2[t.final] ?? 0) + 1;
+      return [l, { ...counts2, load_errors: r.load_errors.length, ...r.compile_error ? { compile_error: true } : {}, ...r.setup_error ? { setup_error: true } : {} }];
     })
   );
   repo.ledger("exec_completed", { run: runId, exec: n, labels: summary });
@@ -2132,15 +2132,15 @@ function classify(repo, runId) {
       kill_rate[tid] = { killed: ms.filter((m) => m.killed_by.length).length, total: ms.length };
     }
   }
-  const counts = {};
+  const counts2 = {};
   for (const t of tests) {
     const k = t.existing ? "existing" : t.target;
-    counts[k] ??= {};
-    counts[k][t.category] = (counts[k][t.category] ?? 0) + 1;
+    counts2[k] ??= {};
+    counts2[k][t.category] = (counts2[k][t.category] ?? 0) + 1;
   }
-  const out = { run: runId, exec: res.exec, mode: run2.mode, at: nowIso(), tests, queue: queue2, counts, dropped, ...kill_rate ? { kill_rate } : {} };
+  const out = { run: runId, exec: res.exec, mode: run2.mode, at: nowIso(), tests, queue: queue2, counts: counts2, dropped, ...kill_rate ? { kill_rate } : {} };
   writeJson(runDir(repo, runId, "classification.json"), out);
-  repo.ledger("classified", { run: runId, exec: res.exec, counts, queued: queue2.length });
+  repo.ledger("classified", { run: runId, exec: res.exec, counts: counts2, queued: queue2.length });
   return out;
 }
 function loadClassification(repo, runId) {
@@ -2224,12 +2224,12 @@ function mapRange(repo, from, to, file, [a, b]) {
   const map = (x, end) => {
     let delta = 0;
     for (const m of diff.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)) {
-      const [os3, ol, ns, nl] = [+m[1], m[2] === void 0 ? 1 : +m[2], +m[3], m[4] === void 0 ? 1 : +m[4]];
+      const [os4, ol, ns, nl] = [+m[1], m[2] === void 0 ? 1 : +m[2], +m[3], m[4] === void 0 ? 1 : +m[4]];
       if (ol === 0) {
-        if (x > os3 || end && x === os3) delta += nl;
+        if (x > os4 || end && x === os4) delta += nl;
         else break;
-      } else if (x > os3 + ol - 1) delta += nl - ol;
-      else if (x >= os3) return end ? ns + Math.max(nl, 1) - 1 : ns;
+      } else if (x > os4 + ol - 1) delta += nl - ol;
+      else if (x >= os4) return end ? ns + Math.max(nl, 1) - 1 : ns;
       else break;
     }
     return x + delta;
@@ -2665,6 +2665,146 @@ var init_mcp = __esm({
   }
 });
 
+// src/backends.ts
+var backends_exports = {};
+__export(backends_exports, {
+  backendOpts: () => backendOpts,
+  blindRun: () => blindRun,
+  childEnv: () => childEnv,
+  firstHeadless: () => firstHeadless,
+  runBackend: () => runBackend
+});
+import { spawn as spawn2 } from "node:child_process";
+import * as fs18 from "node:fs";
+import * as os3 from "node:os";
+import * as path15 from "node:path";
+function childEnv() {
+  const env = {};
+  for (const [k, v] of Object.entries(process.env)) if (!STRIP.test(k)) env[k] = v;
+  return env;
+}
+function spawnText(cmd, args, opts) {
+  return new Promise((resolve3) => {
+    const child = spawn2(cmd, args, { cwd: opts.cwd, env: childEnv(), windowsHide: true, shell: isWin, stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    child.stdout.on("data", (d) => stdout += d);
+    child.stderr.on("data", (d) => stderr += d);
+    child.stdin.on("error", () => {
+    });
+    child.stdin.end(opts.input ?? "");
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, opts.timeoutSec * 1e3);
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      resolve3({ code: 127, stdout, stderr: stderr + e.message, timedOut });
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve3({ code: code ?? 1, stdout, stderr, timedOut });
+    });
+  });
+}
+function opencodeConfig() {
+  const deny = Object.fromEntries(["edit", "bash", "webfetch", "websearch", "read", "glob", "grep", "list", "task", "todowrite", "todoread", "skill", "external_directory", "lsp"].map((k) => [k, "deny"]));
+  return JSON.stringify({ $schema: "https://opencode.ai/config.json", agent: { "tcheck-blind-writer": { mode: "primary", description: "test-checker blind role (no tools)", permission: deny, tools: { "*": false } } } }, null, 2);
+}
+async function runBackend(backend, prompt, opts = {}) {
+  const timeoutSec = opts.timeoutSec ?? 900;
+  if (backend === "api") return apiCall(prompt, opts);
+  if (!["claude", "codex", "opencode", "pi"].includes(backend)) throw usage(`backend ${backend} cannot run headless prompts`);
+  if (!which(backend)) throw envMissing(`backend ${backend} is not installed (not on PATH)`);
+  const tmp = fs18.realpathSync(fs18.mkdtempSync(path15.join(os3.tmpdir(), "tcheck-blind-")));
+  try {
+    fs18.writeFileSync(path15.join(tmp, "PROMPT.md"), prompt);
+    let args;
+    let input;
+    let outFile;
+    const model = opts.model ? [opts.model] : [];
+    switch (backend) {
+      case "claude":
+        args = ["-p", "--tools", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--setting-sources", "", "--disable-slash-commands", "--no-session-persistence", "--output-format", "text", ...model.length ? ["--model", ...model] : []];
+        input = prompt;
+        break;
+      case "codex":
+        outFile = path15.join(tmp, "..", `${path15.basename(tmp)}-last.md`);
+        args = ["exec", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral", "--color", "never", "-C", tmp, "-o", outFile, ...model.length ? ["-m", ...model] : [], "-"];
+        input = prompt;
+        break;
+      case "opencode":
+        fs18.writeFileSync(path15.join(tmp, "opencode.json"), opencodeConfig());
+        args = ["run", "--agent", "tcheck-blind-writer", "--dir", tmp, ...model.length ? ["-m", ...model] : [], prompt];
+        break;
+      default:
+        args = ["-p", "--no-tools", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-session", "--offline", ...model.length ? ["--model", ...model] : [], prompt];
+    }
+    const r = await spawnText(backend, args, { cwd: tmp, input, timeoutSec });
+    if (r.timedOut) throw new TcheckError(`${backend} timed out after ${timeoutSec}s`, EXIT.COMMAND);
+    if (r.code !== 0) throw new TcheckError(`${backend} exited ${r.code}: ${(r.stderr || r.stdout).trim().slice(-800)}`, EXIT.COMMAND);
+    const text = outFile && fs18.existsSync(outFile) ? fs18.readFileSync(outFile, "utf8") : r.stdout;
+    if (outFile) fs18.rmSync(outFile, { force: true });
+    if (!text.trim()) throw new TcheckError(`${backend} returned no text`, EXIT.COMMAND);
+    return text;
+  } finally {
+    fs18.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+async function apiCall(prompt, opts) {
+  const api = opts.api;
+  if (!api?.model) throw usage("blind.backend: api needs blind.api.model");
+  const key = process.env[api.key_env];
+  if (!key) throw envMissing(`blind.backend: api needs the ${api.key_env} environment variable`);
+  const res = api.provider === "openai" ? await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+    body: JSON.stringify({ model: api.model, input: prompt })
+  }) : await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify({ model: api.model, max_tokens: 16e3, messages: [{ role: "user", content: prompt }] })
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new TcheckError(`${api.provider} API ${res.status}: ${body?.error?.message ?? JSON.stringify(body).slice(0, 300)}`, EXIT.COMMAND);
+  const text = api.provider === "openai" ? body.output_text ?? (body.output ?? []).flatMap((o) => o.content ?? []).map((c) => c.text ?? "").join("") : (body.content ?? []).filter((c) => c.type === "text").map((c) => c.text).join("");
+  if (!text?.trim()) throw new TcheckError(`${api.provider} API returned no text`, EXIT.COMMAND);
+  return text;
+}
+function backendOpts(repo) {
+  const c = repo.config;
+  return { model: c.blind.model, api: c.blind.api, timeoutSec: Math.max(c.timeouts.per_command_seconds, 300) };
+}
+async function blindRun(repo, bundle, role, opts = {}) {
+  const harness = detectHarness(opts.harness);
+  const backend = opts.backend ? opts.backend : resolveBackend(repo.config.blind.backend, harness, repo.config.blind.api.key_env);
+  if (backend === "native") {
+    throw new TcheckError(
+      `blind-run is for harnesses without a native blind role. In ${harness}, launch the blind subagent with \`tcheck bundle emit\` (see the harness reference), or pass --backend claude|codex|opencode|pi.`,
+      EXIT.USAGE
+    );
+  }
+  if (backend === "none") throw envMissing("no blind backend available: install claude, codex, opencode or pi (each runs on its own subscription login), or opt in to blind.backend: api");
+  loadBundle(repo, bundle);
+  const p = bundleEmit(repo, bundle, role, { run: opts.run, via: "text" });
+  const text = await runBackend(backend, p.full, backendOpts(repo));
+  writeText(path15.join(runDir(repo, loadBundle(repo, bundle).meta.run_id, "blind"), `${p.payload}.out.md`), text);
+  const r = ingest(repo, p.payload, text);
+  return { ...r, backend, isolation: ISOLATION[backend], payload: p.payload };
+}
+var STRIP;
+var init_backends = __esm({
+  "src/backends.ts"() {
+    "use strict";
+    init_env();
+    init_bundle();
+    init_run();
+    init_util();
+    STRIP = /^(CLAUDECODE|CLAUDE_CODE_(ENTRYPOINT|SESSION_ID|CHILD_SESSION|HOST_SESSION_ID|MESSAGING_SOCKET|MESSAGING_TOKEN|SDK_HAS_HOST_AUTH_REFRESH|SESSION_ATTENDED|EMIT_TOOL_USE_SUMMARIES|REPORT_FINDINGS|TERMINAL_MCP_TOOLS)|CLAUDE_PID|CLAUDE_PROJECT_DIR|CLAUDE_PLUGIN_ROOT|CLAUDE_AGENT_SDK_VERSION|PLUGIN_ROOT|TCHECK_HARNESS|CODEX_THREAD_ID|CODEX_SANDBOX.*)$/;
+  }
+});
+
 // src/lib.ts
 var init_lib = __esm({
   "src/lib.ts"() {
@@ -2684,6 +2824,7 @@ var init_lib = __esm({
     init_adjudicate();
     init_hooks();
     init_mcp();
+    init_backends();
   }
 });
 
@@ -2714,8 +2855,8 @@ var init_status = __esm({
 });
 
 // src/promote.ts
-import * as fs18 from "node:fs";
-import * as path15 from "node:path";
+import * as fs19 from "node:fs";
+import * as path16 from "node:path";
 function planPromotion(repo, runId, opts = {}) {
   const run2 = loadRun(repo, runId);
   const cls2 = loadClassification(repo, runId);
@@ -2744,7 +2885,7 @@ function planPromotion(repo, runId, opts = {}) {
     }
     if (!cfg.promote_dir) throw new TcheckError("promote_dir is not set in .test-checker/config.yaml", EXIT.USAGE);
     const t = loadTarget(repo, runId, f.target);
-    files.push({ source: f.path, dest: path15.posix.join(expandPath(cfg.promote_dir, t), path15.posix.basename(f.path)), target: f.target, tests: tests.map((x) => x.id) });
+    files.push({ source: f.path, dest: path16.posix.join(expandPath(cfg.promote_dir, t), path16.posix.basename(f.path)), target: f.target, tests: tests.map((x) => x.id) });
   }
   return { files, skipped };
 }
@@ -2762,9 +2903,9 @@ Fix the code and re-run exec (code-wrong), or ask the user and record \`tcheck a
   const plan = planPromotion(repo, runId, opts);
   if (!plan.files.length) return { promoted: [], skipped: plan.skipped, verified: [] };
   for (const f of plan.files) {
-    const dest = path15.join(repo.root, f.dest);
-    const content = fs18.readFileSync(runDir(repo, runId, "composed", f.source), "utf8");
-    if (fs18.existsSync(dest) && fs18.readFileSync(dest, "utf8") !== content && !opts.force) {
+    const dest = path16.join(repo.root, f.dest);
+    const content = fs19.readFileSync(runDir(repo, runId, "composed", f.source), "utf8");
+    if (fs19.existsSync(dest) && fs19.readFileSync(dest, "utf8") !== content && !opts.force) {
       throw new TcheckError(`${f.dest} already exists with different content (--force to overwrite)`, EXIT.REJECTED);
     }
     writeText(dest, content);
@@ -2797,7 +2938,7 @@ var init_promote = __esm({
 });
 
 // src/report.ts
-import * as fs19 from "node:fs";
+import * as fs20 from "node:fs";
 function buildReport(repo, runId, opts = {}) {
   const run2 = loadRun(repo, runId);
   const cls2 = loadClassification(repo, runId);
@@ -2833,7 +2974,7 @@ function buildReport(repo, runId, opts = {}) {
   });
   const suspicions = run2.targets.map((tid) => {
     const f = runDir(repo, runId, "targets", tid, "analysis.md");
-    return { target: tid, analysis: fs19.existsSync(f) ? fs19.readFileSync(f, "utf8").trim() : "" };
+    return { target: tid, analysis: fs20.existsSync(f) ? fs20.readFileSync(f, "utf8").trim() : "" };
   }).filter((s) => s.analysis && !/^(logical mistakes:\s*none found\.?\s*robustness omissions:\s*none found\.?)$/i.test(s.analysis.replace(/\s+/g, " ")));
   const decisions = decided.filter((d) => d.v.verdict === "spec-ambiguous" && !verdicts[d.test].override).map((d) => ({ test: d.test, question: d.v.reason, spec_basis: d.v.spec_basis }));
   const misguided = cls2.tests.filter((t) => t.category === "misguided" || t.category === "disputed").map((t) => {
@@ -2938,8 +3079,8 @@ var doctor_exports = {};
 __export(doctor_exports, {
   doctor: () => doctor
 });
-import * as fs20 from "node:fs";
-import * as path16 from "node:path";
+import * as fs21 from "node:fs";
+import * as path17 from "node:path";
 async function doctor(repo, opts) {
   const checks = [];
   const log = opts.log ?? ((s) => process.stderr.write(s + "\n"));
@@ -2956,13 +3097,13 @@ async function doctor(repo, opts) {
   else checks.push({ name: "source_globs", ok: true, detail: `e.g. ${src}` });
   const stand = { id: "tcheck-doctor", file: src ?? "doctor", symbol: "doctor" };
   const testDir = expandPath(cfg.test_dir, stand);
-  const name = (n) => path16.posix.join(testDir, expandPath(cfg.test_file_pattern, stand, n));
+  const name = (n) => path17.posix.join(testDir, expandPath(cfg.test_file_pattern, stand, n));
   let files;
   if (opts.use?.length) {
     files = opts.use.map((p) => {
-      const abs = path16.resolve(p);
-      if (!fs20.existsSync(abs)) throw new TcheckError(`--use file not found: ${p}`, EXIT.USAGE);
-      return { path: path16.posix.join(testDir, path16.basename(abs)), content: fs20.readFileSync(abs, "utf8") };
+      const abs = path17.resolve(p);
+      if (!fs21.existsSync(abs)) throw new TcheckError(`--use file not found: ${p}`, EXIT.USAGE);
+      return { path: path17.posix.join(testDir, path17.basename(abs)), content: fs21.readFileSync(abs, "utf8") };
     });
   } else {
     const tpl = TEMPLATES.find((t) => t.match.test(cfg.framework));
@@ -2974,18 +3115,18 @@ async function doctor(repo, opts) {
         EXIT.USAGE
       );
     }
-    const pkgDir = src ? path16.posix.dirname(src) : ".";
-    const goPkg = src && fs20.existsSync(path16.join(repo.root, src)) ? /^package\s+(\w+)/m.exec(fs20.readFileSync(path16.join(repo.root, src), "utf8"))?.[1] : void 0;
-    files = tpl.files({ name, pkg: goPkg ?? path16.posix.basename(pkgDir), javaPkg: packagePath(stand.file).replace(/\//g, ".") }).map((f) => ({ path: name(f.n), content: f.content }));
+    const pkgDir = src ? path17.posix.dirname(src) : ".";
+    const goPkg = src && fs21.existsSync(path17.join(repo.root, src)) ? /^package\s+(\w+)/m.exec(fs21.readFileSync(path17.join(repo.root, src), "utf8"))?.[1] : void 0;
+    files = tpl.files({ name, pkg: goPkg ?? path17.posix.basename(pkgDir), javaPkg: packagePath(stand.file).replace(/\//g, ".") }).map((f) => ({ path: name(f.n), content: f.content }));
   }
   const snapId = `doctor-${randHex(6)}`;
   const commit = snapshotWorktree(repo, snapId);
   const wt = ensureWorktree(repo, commit);
   try {
     for (const f of files) {
-      const dst = path16.join(wt.dir, f.path);
-      fs20.mkdirSync(path16.dirname(dst), { recursive: true });
-      fs20.writeFileSync(dst, f.content);
+      const dst = path17.join(wt.dir, f.path);
+      fs21.mkdirSync(path17.dirname(dst), { recursive: true });
+      fs21.writeFileSync(dst, f.content);
       wt.meta.composed.push(f.path);
     }
     wt.saveMeta();
@@ -2993,9 +3134,9 @@ async function doctor(repo, opts) {
     const env = commandEnv(cfg);
     const timeout = cfg.timeouts.per_command_seconds;
     const junitDir = repo.p("runs", "_doctor");
-    fs20.rmSync(junitDir, { recursive: true, force: true });
-    fs20.mkdirSync(junitDir, { recursive: true });
-    const junit = path16.join(junitDir, "junit.xml");
+    fs21.rmSync(junitDir, { recursive: true, force: true });
+    fs21.mkdirSync(junitDir, { recursive: true });
+    const junit = path17.join(junitDir, "junit.xml");
     const vars = { files: files.map((f) => f.path).join(" "), junit, test_dir: testDir, root: wt.dir };
     for (const step of ["setup", "compile"]) {
       const cmd = cfg.commands[step];
@@ -3038,9 +3179,9 @@ ${output}` : "The failing test did not fail: check that {files} is honoured and 
     });
     return { ok, checks, code: ok ? EXIT.OK : EXIT.COMMAND };
   } finally {
-    for (const f of wt.meta.composed) fs20.rmSync(path16.join(wt.dir, f), { force: true });
+    for (const f of wt.meta.composed) fs21.rmSync(path17.join(wt.dir, f), { force: true });
     repo.git(["worktree", "remove", "--force", wt.dir], { allowFail: true });
-    fs20.rmSync(repo.p("worktrees", "_cache", `${commit}.json`), { force: true });
+    fs21.rmSync(repo.p("worktrees", "_cache", `${commit}.json`), { force: true });
     repo.git(["update-ref", "-d", `refs/tcheck/${snapId}/worktree`], { allowFail: true });
   }
 }
@@ -3059,7 +3200,7 @@ var init_doctor = __esm({
     init_junit();
     init_run();
     init_util();
-    cls = (file) => path16.basename(file).replace(/\..*$/, "");
+    cls = (file) => path17.basename(file).replace(/\..*$/, "");
     TEMPLATES = [
       { match: /pytest/i, files: () => [{ n: 1, content: "def test_tcheck_doctor_pass():\n    assert 1 + 1 == 2\n\n\ndef test_tcheck_doctor_fail():\n    assert 1 + 1 == 3\n" }] },
       {
@@ -3131,6 +3272,148 @@ public class ${cls(name(1))}
   }
 });
 
+// src/selftest.ts
+var selftest_exports = {};
+__export(selftest_exports, {
+  selftest: () => selftest
+});
+import * as fs22 from "node:fs";
+import * as path18 from "node:path";
+function counts(cls2) {
+  const c = ZERO();
+  for (const t of cls2.tests) if (t.category in c) c[t.category]++;
+  return c;
+}
+async function blindPipeline(repo, fx, backend, log, res) {
+  const run2 = runStart(repo, { mode: "bugfix", buggy: fx.buggy, fixed: fx.fixed }).id;
+  const t = targetAdd(repo, run2, fx.fixture.target, fx.fixture.lines.join("-"));
+  contextSet(repo, run2, t.id, path18.join(fx.fixture.dir, "context.json"));
+  const opts = backendOpts(repo);
+  for (let attempt = 1; ; attempt++) {
+    const p = specPrompt(repo, run2, t.id);
+    log(`${fx.fixture.name}: spec (attempt ${attempt})`);
+    const out = await runBackend(backend, p.full, opts);
+    try {
+      specSave(repo, run2, t.id, out);
+      break;
+    } catch (e) {
+      if (attempt >= 2) throw e;
+      log(`${fx.fixture.name}: spec rejected (${e.message.split("\n")[0]}), retrying`);
+    }
+  }
+  const { bundle } = bundleBuild(repo, run2, t.id);
+  log(`${fx.fixture.name}: blind writer`);
+  await blindRun(repo, bundle, "writer", { run: run2, backend });
+  compose(repo, run2);
+  let ex = await execRun(repo, run2, { log: () => {
+  } });
+  while (ex.targets[t.id]?.status === "needs_repair" && res.repair_rounds < repo.config.refine_rounds) {
+    res.repair_rounds++;
+    log(`${fx.fixture.name}: repair round ${res.repair_rounds}`);
+    await blindRun(repo, bundle, "repair", { run: run2, backend });
+    compose(repo, run2);
+    ex = await execRun(repo, run2, { log: () => {
+    } });
+  }
+  if (ex.targets[t.id]?.status === "failed_setup") throw new TcheckError(`setup failed: ${ex.setup_error}`, EXIT.COMMAND);
+  return { run: run2, cls: classify(repo, run2) };
+}
+async function baselinePipeline(repo, fx, backend, log) {
+  const run2 = runStart(repo, { mode: "bugfix", buggy: fx.buggy, fixed: fx.fixed }).id;
+  const t = targetAdd(repo, run2, fx.fixture.target, fx.fixture.lines.join("-"));
+  contextSet(repo, run2, t.id, path18.join(fx.fixture.dir, "context.json"));
+  const tt = loadTarget(repo, run2, t.id);
+  const ctx = JSON.parse(fs22.readFileSync(path18.join(fx.fixture.dir, "context.json"), "utf8"));
+  const body = renderPrompt("code-aware-baseline.md", { ...configVars(repo, tt), target: { symbol: tt.symbol, file: tt.file, body: tt.body }, context_markdown: contextMarkdown(ctx, repo.config.language_tag) }, "baseline");
+  const p = storePayload(repo, { role: "baseline", run: run2, target: t.id }, body);
+  log(`${fx.fixture.name}: baseline writer`);
+  ingest(repo, p.id, await runBackend(backend, p.full, backendOpts(repo)));
+  compose(repo, run2);
+  await execRun(repo, run2, { log: () => {
+  } });
+  return { run: run2, cls: classify(repo, run2) };
+}
+function leakClean(repo, blindRunId) {
+  const { targets, opts } = leakContext(repo, blindRunId);
+  const idx = payloadIndex(repo);
+  const files = [
+    ...listFilesRecursive(repo.p("bundles")).filter((f) => f.includes(`-${blindRunId.slice(-4)}-`)),
+    ...Object.values(idx).filter((e) => e.run === blindRunId && (e.role === "writer" || e.role === "repair")).map((e) => repo.p("payloads", `${e.id}.md`))
+  ];
+  return files.every((f) => checkLeak(fs22.readFileSync(f, "utf8"), targets, { ...opts, threshold: 1 }).findings.length === 0);
+}
+async function selftest(opts) {
+  const log = opts.log ?? ((s) => process.stderr.write(s + "\n"));
+  const backend = opts.backend ?? firstHeadless();
+  if (!backend) throw envMissing("selftest needs a headless backend: install claude, codex, opencode or pi, or pass --backend api");
+  const names = opts.fixtures?.length ? opts.fixtures : listFixtures();
+  if (!names.length) throw envMissing("no fixtures found");
+  log(`selftest: ${names.length} fixture(s) via ${backend}`);
+  const results = await Promise.all(
+    names.map(async (name) => {
+      const fx = buildFixtureRepo(name);
+      const repo = new Repo(fx.dir);
+      const res = { fixture: name, blind: null, baseline: null, errors: [], repair_rounds: 0, min_effective: fx.fixture.expect?.min_effective_blind ?? 1, leak_clean: true, dir: fx.dir };
+      const settle = (p) => p.then((value) => ({ status: "fulfilled", value }), (reason) => ({ status: "rejected", reason }));
+      const b = await settle(blindPipeline(repo, fx, backend, log, res));
+      const base = await settle(baselinePipeline(repo, fx, backend, log));
+      if (b.status === "fulfilled") {
+        res.blind = counts(b.value.cls);
+        res.leak_clean = leakClean(repo, b.value.run);
+      } else res.errors.push(`blind: ${b.reason?.message ?? b.reason}`);
+      if (base.status === "fulfilled") res.baseline = counts(base.value.cls);
+      else res.errors.push(`baseline: ${base.reason?.message ?? base.reason}`);
+      log(`${name}: done${res.errors.length ? ` with errors: ${res.errors.join("; ")}` : ""}`);
+      return res;
+    })
+  );
+  const perFixture = results.map((r) => ({
+    fixture: r.fixture,
+    c1_pipeline: !!r.blind && !r.errors.some((e) => e.startsWith("blind")),
+    c2_effective: (r.blind?.effective ?? 0) >= r.min_effective
+  }));
+  const sum = (k, side) => results.reduce((n, r) => n + (r[side]?.[k] ?? 0), 0);
+  const c3 = sum("misguided", "blind") < sum("misguided", "baseline");
+  const c4 = results.every((r) => r.leak_clean);
+  const hardPass = perFixture.every((p) => p.c1_pipeline && p.c2_effective) && c4;
+  const row = (r, side) => {
+    const c = r[side];
+    return `${r.fixture.padEnd(15)} ${side.padEnd(9)} ${c ? [c.effective, c.misguided, c.broken, c.neutral].map((n) => String(n).padStart(9)).join("") : "    (failed)"}`;
+  };
+  const table2 = [
+    `${"fixture".padEnd(15)} ${"side".padEnd(9)}${["effective", "misguided", "broken", "neutral"].map((h) => h.padStart(10)).join("")}`,
+    ...results.flatMap((r) => [row(r, "blind"), row(r, "baseline")]),
+    `${"TOTAL".padEnd(15)} ${"blind".padEnd(9)}${["effective", "misguided", "broken", "neutral"].map((k) => String(sum(k, "blind")).padStart(10)).join("")}`,
+    `${"TOTAL".padEnd(15)} ${"baseline".padEnd(9)}${["effective", "misguided", "broken", "neutral"].map((k) => String(sum(k, "baseline")).padStart(10)).join("")}`,
+    "",
+    ...perFixture.map((p) => `${p.fixture}: 1 pipeline ${p.c1_pipeline ? "PASS" : "FAIL"}, 2 effective \u2265 min ${p.c2_effective ? "PASS" : "FAIL"}`),
+    `3 blind misguided < baseline misguided: ${c3 ? "PASS" : "WARN"} (${sum("misguided", "blind")} vs ${sum("misguided", "baseline")})`,
+    `4 no body lines in bundles/payloads: ${c4 ? "PASS" : "FAIL"}`,
+    ...results.filter((r) => r.errors.length).map((r) => `errors in ${r.fixture}: ${r.errors.join("; ")}`),
+    `selftest: ${hardPass ? "PASS" : "FAIL"}${hardPass && !c3 ? " (criterion 3 warns)" : ""}`
+  ].join("\n");
+  return { backend, results, criteria: { per_fixture: perFixture, c3_fewer_misguided: c3, c4_no_leaks: c4 }, pass: hardPass, table: table2, code: hardPass ? EXIT.OK : EXIT.REJECTED };
+}
+var ZERO;
+var init_selftest = __esm({
+  "src/selftest.ts"() {
+    "use strict";
+    init_repo();
+    init_env();
+    init_fixtures();
+    init_run();
+    init_exec();
+    init_classify();
+    init_spec();
+    init_bundle();
+    init_backends();
+    init_payload();
+    init_leak();
+    init_util();
+    ZERO = () => ({ effective: 0, misguided: 0, broken: 0, neutral: 0 });
+  }
+});
+
 // src/commands.ts
 var commands_exports = {};
 function need(a, i, name) {
@@ -3175,6 +3458,17 @@ var init_commands = __esm({
 `);
       }
       return { data: void 0, code: 0 };
+    });
+    register("blind-run", async (a) => {
+      const { blindRun: blindRun2 } = await Promise.resolve().then(() => (init_backends(), backends_exports));
+      const r = await blindRun2(repoOf(a), need(a, 1, "bundle"), str(a, "role") ?? "", { run: str(a, "run"), backend: str(a, "backend"), harness: str(a, "harness") });
+      return { data: r, human: `${r.message} (backend: ${r.backend}, isolation: ${r.isolation})` };
+    });
+    register("selftest", async (a) => {
+      const { selftest: selftest2 } = await Promise.resolve().then(() => (init_selftest(), selftest_exports));
+      const r = await selftest2({ backend: str(a, "backend"), fixtures: list(a, "fixtures"), log: bool(a, "quiet") ? () => {
+      } : void 0 });
+      return { data: r, human: r.table, code: r.code };
     });
     register("mcp", async () => {
       await serve();
@@ -3288,7 +3582,7 @@ ${r.setup_error}`] : []).join("\n");
 });
 
 // src/cli.ts
-import * as fs21 from "node:fs";
+import * as fs23 from "node:fs";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 function parseArgs(argv) {
   const a = { _: [], flags: {} };
@@ -3360,7 +3654,7 @@ async function loadCommands() {
 function isMain() {
   if (!process.argv[1]) return false;
   try {
-    return fs21.realpathSync(process.argv[1]) === fs21.realpathSync(fileURLToPath2(import.meta.url));
+    return fs23.realpathSync(process.argv[1]) === fs23.realpathSync(fileURLToPath2(import.meta.url));
   } catch {
     return false;
   }
@@ -3425,6 +3719,7 @@ export {
   buildFixtureRepo,
   callTool,
   checkLeak,
+  childEnv,
   detectHarness,
   dirtyFiles,
   editedPaths,
@@ -3459,6 +3754,7 @@ export {
   register,
   renderTemplate,
   resolveBackend,
+  runBackend,
   signatureLineCount,
   significantLines,
   str,
