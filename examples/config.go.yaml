@@ -1,0 +1,11 @@
+version: 1
+language: go
+framework: "go test (testing package)"
+source_globs: ["**/*.go", "!**/*_test.go"]
+# Go tests must live in the package directory. {pkg_dir} expands to the target file's directory.
+test_dir: "{pkg_dir}"
+test_file_pattern: "tcheck_{target_slug}_{n}_test.go"
+commands:
+  run: "gotestsum --junitfile {junit} -- -run 'TCheck' ./..."
+gate: warn
+# Note: generated test function names must start with TestTCheck so the -run filter selects only them.

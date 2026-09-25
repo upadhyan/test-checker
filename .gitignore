@@ -1,0 +1,6 @@
+node_modules/
+# per-repo runtime state written by tcheck in *target* repos (kept here for dogfooding)
+.test-checker/runs/
+.test-checker/bundles/
+.test-checker/generated/
+.test-checker/worktrees/

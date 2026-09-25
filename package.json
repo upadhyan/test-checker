@@ -1,0 +1,70 @@
+{
+  "name": "@upadhyan/test-checker",
+  "version": "0.1.0",
+  "description": "Verify LLM-written unit tests: blind spec-first test generation, dual-version execution (buggy vs fixed), and misguided-test detection. Language-agnostic.",
+  "license": "MIT",
+  "author": {
+    "name": "Nakul Upadhya"
+  },
+  "homepage": "https://github.com/upadhyan/test-checker",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/upadhyan/test-checker.git"
+  },
+  "keywords": [
+    "opencode-plugin",
+    "opencode",
+    "pi-package",
+    "pi",
+    "skills",
+    "testing",
+    "verification"
+  ],
+  "type": "module",
+  "main": "./.opencode/plugins/test-checker.mjs",
+  "exports": {
+    ".": "./.opencode/plugins/test-checker.mjs",
+    "./engine": "./dist/tcheck.mjs"
+  },
+  "bin": {
+    "tcheck": "./dist/tcheck.mjs"
+  },
+  "files": [
+    "dist/",
+    "prompts/",
+    "skills/",
+    "agents/",
+    "hooks/",
+    ".opencode/",
+    "pi-extension/",
+    "examples/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "pi": {
+    "extensions": [
+      "./pi-extension/index.mjs"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "scripts": {
+    "build": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/tcheck.mjs --banner:js=\"#!/usr/bin/env node\"",
+    "check:dist": "npm run build && git diff --exit-code dist/",
+    "test": "node --test tests/",
+    "selftest": "node dist/tcheck.mjs selftest",
+    "validate": "claude plugin validate .claude-plugin/plugin.json --strict && claude plugin validate ."
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "name": "test-checker",
+  "version": "0.1.0",
+  "description": "Verify LLM-written unit tests: blind spec-first test generation, dual-version execution (buggy vs fixed), and misguided-test detection. Language-agnostic.",
+  "author": {
+    "name": "Nakul Upadhya"
+  },
+  "homepage": "https://github.com/upadhyan/test-checker",
+  "repository": "https://github.com/upadhyan/test-checker",
+  "license": "MIT",
+  "keywords": [
+    "testing",
+    "unit-tests",
+    "verification"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks/claude-codex-hooks.json",
+  "interface": {
+    "displayName": "Test Checker",
+    "shortDescription": "Verify LLM-written unit tests",
+    "longDescription": "Generates tests blind from a specification, runs them against buggy and fixed versions, and flags tests that enshrine bugs instead of catching them.",
+    "developerName": "Nakul Upadhya",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Skills",
+      "Lifecycle hooks"
+    ],
+    "websiteURL": "https://github.com/upadhyan/test-checker",
+    "defaultPrompt": [
+      "Verify the tests for the function I just fixed.",
+      "Write blind tests for src/parser.ts::parseDate and check them.",
+      "Set up test-checker for this repo."
+    ]
+  }
+}

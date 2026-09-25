@@ -1,0 +1,12 @@
+version: 1
+language: java
+framework: "JUnit 5"
+source_globs: ["src/main/java/**/*.java"]
+test_dir: "src/test/java/{package_path}"
+test_file_pattern: "TCheck{Symbol}{n}Test.java"
+promote_dir: "src/test/java/{package_path}"
+commands:
+  compile: "mvn -q -DskipTests test-compile"
+  # Surefire writes one XML per class into target/surefire-reports; {junit} may be a directory.
+  run: "mvn -q -Dtest='TCheck*' -Dsurefire.failIfNoSpecifiedTests=false -Dsurefire.reportsDirectory={junit} test"
+gate: warn

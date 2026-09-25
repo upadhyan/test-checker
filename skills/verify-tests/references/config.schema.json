@@ -1,0 +1,227 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/upadhyan/test-checker/config.schema.json",
+  "title": "test-checker config (.test-checker/config.yaml)",
+  "type": "object",
+  "required": [
+    "version",
+    "language",
+    "framework",
+    "source_globs",
+    "test_dir",
+    "test_file_pattern",
+    "commands"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "language": {
+      "type": "string"
+    },
+    "language_tag": {
+      "type": "string"
+    },
+    "framework": {
+      "type": "string"
+    },
+    "source_globs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "test_dir": {
+      "type": "string"
+    },
+    "test_file_pattern": {
+      "type": "string",
+      "pattern": "\\{(symbol|n|target_slug)\\}"
+    },
+    "promote_dir": {
+      "type": "string"
+    },
+    "commands": {
+      "type": "object",
+      "required": [
+        "run"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "setup": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "compile": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run": {
+          "type": "string",
+          "pattern": "\\{junit\\}"
+        },
+        "mutate": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "results": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "const": "junit-xml"
+        }
+      }
+    },
+    "timeouts": {
+      "type": "object",
+      "properties": {
+        "per_test_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "per_command_seconds": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "flake_reruns": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10,
+      "default": 3
+    },
+    "refine_rounds": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 5,
+      "default": 3
+    },
+    "spec": {
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "enum": [
+            "advanced",
+            "base"
+          ]
+        },
+        "variant": {
+          "enum": [
+            "auto",
+            "reasoning",
+            "scaffold"
+          ]
+        },
+        "source": {
+          "enum": [
+            "fixed",
+            "buggy"
+          ]
+        }
+      }
+    },
+    "blind": {
+      "type": "object",
+      "properties": {
+        "backend": {
+          "enum": [
+            "auto",
+            "native",
+            "api",
+            "claude",
+            "codex",
+            "opencode",
+            "pi"
+          ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "api": {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "enum": [
+                "anthropic",
+                "openai"
+              ]
+            },
+            "model": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "key_env": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "gate": {
+      "enum": [
+        "off",
+        "warn",
+        "block"
+      ],
+      "default": "warn"
+    },
+    "protect": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "env_passthrough": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "mutation": {
+      "type": "object",
+      "properties": {
+        "max_mutants_per_target": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "leak": {
+      "type": "object",
+      "properties": {
+        "shingle_threshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.25
+        },
+        "min_line_length": {
+          "type": "integer",
+          "default": 12
+        }
+      }
+    },
+    "repair_error_patterns": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Regexes over JUnit <error> type/message that mark an error as repairable. Replaces the language-family defaults."
+    }
+  }
+}

@@ -1,0 +1,13 @@
+version: 1
+language: typescript
+language_tag: ts
+framework: vitest
+source_globs: ["src/**/*.ts"]
+test_dir: test/tcheck
+test_file_pattern: "{target_slug}.{n}.test.ts"
+promote_dir: test/regression
+commands:
+  setup: "npm ci --no-audit --no-fund"
+  compile: "npx tsc --noEmit -p ."
+  run: "npx vitest run {files} --reporter=junit --outputFile={junit}"
+gate: warn

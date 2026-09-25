@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "test-checker",
+  "description": "Verify LLM-written unit tests: blind spec-first test generation, dual-version execution (buggy vs fixed), and misguided-test detection. Language-agnostic.",
+  "owner": {
+    "name": "Nakul Upadhya"
+  },
+  "plugins": [
+    {
+      "name": "test-checker",
+      "description": "Blind, dual-execution verification of LLM-generated unit tests.",
+      "source": "./",
+      "category": "development"
+    }
+  ]
+}

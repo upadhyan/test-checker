@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/upadhyan/test-checker/bundle.schema.json",
+  "title": "test-checker blind bundle",
+  "description": "Everything the blind writer sees. There is deliberately no field for the target's body. The agent writes `context`; the engine adds `focal`, `spec` and `meta`, then freezes the bundle.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "focal",
+    "spec",
+    "context",
+    "meta"
+  ],
+  "properties": {
+    "focal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "signature",
+        "file",
+        "language"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Symbol, e.g. `Parser.parse_date` or `mean`"
+        },
+        "signature": {
+          "type": "string",
+          "description": "Declaration line(s) only: name, parameters, types, return type, decorators. No body."
+        },
+        "file": {
+          "type": "string",
+          "description": "Repo-relative path, used for imports"
+        },
+        "language": {
+          "type": "string"
+        }
+      }
+    },
+    "spec": {
+      "type": "string",
+      "description": "The <spec> block from the spec extractor, possibly edited by the user"
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enclosing_type": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "constructors": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Constructor signatures"
+            },
+            "fields": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Field declarations with types"
+            },
+            "sibling_signatures": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Other public methods of the type, signatures only"
+            }
+          }
+        },
+        "types": {
+          "type": "array",
+          "description": "User-defined types used as parameters or return values",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "file": {
+                "type": "string"
+              },
+              "constructors": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "public_signatures": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "module_signatures": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Other functions in the same module the tests may need (signatures only)"
+        },
+        "test_conventions": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "imports": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Import lines tests need, e.g. `from mypkg.stats import mean`"
+            },
+            "example_test": {
+              "type": "string",
+              "description": "One short existing test from the project, as a style reference. Must not test the target."
+            },
+            "fixtures": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Names and one-line descriptions of available fixtures or helpers"
+            }
+          }
+        }
+      }
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bundle_id",
+        "run_id",
+        "target_id",
+        "created_at",
+        "leak_check"
+      ],
+      "properties": {
+        "bundle_id": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "target_id": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "leak_check": {
+          "type": "object",
+          "required": [
+            "passed",
+            "method"
+          ],
+          "properties": {
+            "passed": {
+              "type": "boolean"
+            },
+            "method": {
+              "type": "string"
+            },
+            "max_shared_line_ratio": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    }
+  }
+}

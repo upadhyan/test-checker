@@ -1,0 +1,10 @@
+version: 1
+language: rust
+framework: "cargo test via cargo-nextest"
+source_globs: ["src/**/*.rs"]
+test_dir: tests
+test_file_pattern: "tcheck_{target_slug}_{n}.rs"
+commands:
+  # Requires a [profile.tcheck.junit] section in .config/nextest.toml; `tcheck doctor` explains.
+  run: "cargo nextest run --profile tcheck --test 'tcheck_*' && cp target/nextest/tcheck/junit.xml {junit}"
+gate: warn
