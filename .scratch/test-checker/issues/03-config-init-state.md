@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Engine skeleton and `tcheck env`
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] The YAML parser loads every example config
 - [ ] Invalid configs are rejected with exit 2 and a readable path

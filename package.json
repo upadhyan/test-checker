@@ -55,7 +55,7 @@
   "scripts": {
     "build": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/tcheck.mjs --banner:js=\"#!/usr/bin/env node\"",
     "check:dist": "npm run build && git diff --exit-code dist/",
-    "test": "node --test tests/",
+    "test": "node --test tests/*.test.js",
     "selftest": "node dist/tcheck.mjs selftest",
     "validate": "claude plugin validate .claude-plugin/plugin.json --strict && claude plugin validate ."
   },

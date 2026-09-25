@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 — Housekeeping and first commit
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] `node dist/tcheck.mjs env --json` in a scratch git repo prints the §4 shape
 - [ ] Unknown command exits with the usage error code
