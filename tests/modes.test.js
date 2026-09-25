@@ -62,6 +62,50 @@ test("audit mode pairs a disputed blind test with a passing existing test on the
   assert.equal(cls.counts.existing.accepted, 1);
 });
 
+test("audit rewrite: after the fix only the suspect that fails is bad; it is deleted and the blind test is promoted", () => {
+  const { dir } = buildFixtureRepo("off_by_one");
+  git(dir, "reset", "-q", "--hard", "HEAD~1");
+  writeFiles(dir, {
+    "tests/test_existing.py": `${IMPORT}def test_existing_three():\n    assert sum_to(3) == 3\n`,
+    "tests/test_other.py": `${IMPORT}def test_zero():\n    assert sum_to(0) == 0\n`,
+  });
+  git(dir, "add", "-A");
+  git(dir, "commit", "-qm", "existing tests");
+  const run = tcheck(dir, ["run", "start", "--mode", "audit", "--existing", "tests/test_existing.py", "tests/test_other.py", "--json"]).json.run;
+  const target = tcheck(dir, ["target", "add", run, ...TARGET, "--json"]).json.target;
+  dropTests(dir, run, target, { "test_sum_to_1.py": `${IMPORT}def test_includes_n():\n    assert sum_to(3) == 6\n` });
+  tcheck(dir, ["compose", run]);
+  assert.equal(tcheck(dir, ["exec", run]).code, 0);
+  let cls = tcheck(dir, ["classify", run, "--json"]).json;
+  const blind = cls.queue[0].test;
+  const suspect = cls.tests.find((t) => t.name === "test_existing_three").id;
+  const bystander = cls.tests.find((t) => t.name === "test_zero").id;
+  const verdict = path.join(dir, "verdict.txt");
+  fs.writeFileSync(verdict, '<verdict>code-wrong</verdict>\n<spec_basis>"sum of 1 through n inclusive"</spec_basis>\n<reason>n is omitted.</reason>');
+  assert.equal(tcheck(dir, ["adjudicate", "save", run, blind, "--from", verdict]).code, 0);
+  assert.deepEqual(tcheck(dir, ["report", run, "--json"]).json.likely_bugs[0].suspect_existing.sort(), [suspect, bystander].sort(), "pairing is by unit name, so both are suspects");
+  assert.equal(tcheck(dir, ["promote", run, "--tests", blind]).code, 2, "blocked until the code is fixed");
+
+  // Fix the code: the blind test passes, the suspect existing test now fails.
+  const f = path.join(dir, "src/fx/stats.py");
+  fs.writeFileSync(f, fs.readFileSync(f, "utf8").replace("range(n)", "range(n + 1)"));
+  assert.equal(tcheck(dir, ["exec", run]).code, 0);
+  cls = tcheck(dir, ["classify", run, "--json"]).json;
+  const cat = (id) => cls.tests.find((t) => t.id === id).category;
+  assert.equal(cat(blind), "accepted");
+  assert.equal(cat(suspect), "disputed", "the bad test fails once the code is fixed");
+  assert.equal(cat(bystander), "accepted", "a suspect that still passes is kept");
+
+  // Delete the bad test (its file held nothing else); exec still runs, then promote the replacement.
+  fs.rmSync(path.join(dir, "tests/test_existing.py"));
+  assert.equal(tcheck(dir, ["exec", run]).code, 0);
+  tcheck(dir, ["classify", run]);
+  const r = tcheck(dir, ["promote", run, "--tests", blind, "--json"]);
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(r.json.promoted.length, 1);
+  assert.ok(fs.existsSync(path.join(dir, "tests/test_other.py")), "other existing tests are kept");
+});
+
 test("new mode with mutation: accepted tests that kill a mutant are effective", () => {
   const { dir } = buildFixtureRepo("off_by_one");
   // A mutate command prints one JSON object per line: {id, file, patch}.

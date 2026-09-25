@@ -1838,7 +1838,8 @@ async function execRun(repo, runId, opts = {}) {
   const results = { exec: n, at: nowIso(), labels: {} };
   const files = [
     ...composed.map((f) => ({ path: f.path, target: f.target, content: fs13.readFileSync(path12.join(runDir(repo, runId, "composed"), f.path), "utf8") })),
-    ...run2.existing.map((p) => ({ path: p, target: "existing", content: fs13.readFileSync(path12.join(repo.root, p), "utf8") }))
+    // An existing file may be gone: audit deletes bad tests, and a file can hold nothing else.
+    ...run2.existing.filter((p) => fs13.existsSync(path12.join(repo.root, p))).map((p) => ({ path: p, target: "existing", content: fs13.readFileSync(path12.join(repo.root, p), "utf8") }))
   ];
   const testDir = composed.length ? path12.posix.dirname(composed[0].path) : "";
   const runLabel = async (label, commit, reruns, patch, only) => {

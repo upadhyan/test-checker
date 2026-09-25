@@ -44,7 +44,7 @@ Success signal: at least one `effective` test per target, and zero unresolved `m
 2. The engine runs the existing tests (`--existing <paths>`) and a fresh blind suite on the current code.
 3. **Disagreement:** an existing test passes, but a blind test on the same unit fails. That's queued for adjudication with both tests shown.
 4. **Outcome:** `code-wrong` means the existing test likely enshrines a bug. The report names it as `suspect-existing`.
-5. **Rewrite:** once the code is fixed (the blind test passes and the suspect test fails), the agent deletes the suspect test functions and promotes the target's accepted blind tests in their place. Every other existing test is kept.
+5. **Rewrite:** once the code is fixed, the blind test passes and the bad suspects fail. The agent deletes only the suspects that now fail and promotes the target's accepted blind tests in their place. Every other existing test is kept.
 6. **Limitation:** "same unit" is known, but "same behaviour" isn't. The adjudicator decides whether the two tests are actually about the same case.
 
 ## Choosing scope

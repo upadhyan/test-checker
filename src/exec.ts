@@ -153,7 +153,8 @@ export async function execRun(repo: Repo, runId: string, opts: { log?: (s: strin
 
   const files: RunFile[] = [
     ...composed.map((f) => ({ path: f.path, target: f.target, content: fs.readFileSync(path.join(runDir(repo, runId, "composed"), f.path), "utf8") })),
-    ...run.existing.map((p) => ({ path: p, target: "existing", content: fs.readFileSync(path.join(repo.root, p), "utf8") })),
+    // An existing file may be gone: audit deletes bad tests, and a file can hold nothing else.
+    ...run.existing.filter((p) => fs.existsSync(path.join(repo.root, p))).map((p) => ({ path: p, target: "existing", content: fs.readFileSync(path.join(repo.root, p), "utf8") })),
   ];
   const testDir = composed.length ? path.posix.dirname(composed[0].path) : "";
 

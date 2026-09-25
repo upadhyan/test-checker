@@ -17,7 +17,7 @@ The engine is `node <plugin-root>/dist/tcheck.mjs`, written `tcheck` below. Step
 
 1. **Never write or paraphrase a blind role's prompt yourself.** The blind writer and repair roles get exactly the text `tcheck bundle emit` prints, nothing added or removed. You have seen the implementation, so anything you add can leak it.
 2. **Never edit generated or verified tests to make them pass.** A failing blind test goes to adjudication. Only a `test-wrong` verdict, or the user, allows changing it. Hooks enforce this where the harness supports hooks.
-3. **Remove an existing test only when it is `suspect-existing`** in a `code-wrong` verdict (Step 7a). Every other existing test stays as it is.
+3. **Remove an existing test only when it is a bad test** (Step 7a). Every other existing test stays as it is.
 4. **Never feed assertion failures or runtime values into repair.** The engine filters errors, so pass along only what `tcheck` gives you.
 5. **The spec is the reference, not the code.** If the spec is wrong, fix the spec (`tcheck spec edit`) and regenerate. Don't patch tests around it.
 6. **Ask the user** when adjudication returns `spec-ambiguous`. Never pick a side yourself.
@@ -148,9 +148,9 @@ Give the user the summary:
 
 ### 7a: Replace bad tests (audit)
 
-A **bad test** is a `suspect-existing` test from a `code-wrong` verdict. For each likely bug:
+A **bad test** is a `suspect-existing` test that fails once the code is fixed. Pairing is by unit name, so suspects include tests that are fine; execution sorts them. For each likely bug:
 
-1. Ask the user to fix the code, or fix it with their OK. Then run `tcheck exec <run>` and `tcheck classify <run>`. The fix is confirmed when the blind test now passes and the suspect existing test now fails.
+1. Ask the user to fix the code, or fix it with their OK. Then run `tcheck exec <run>` and `tcheck classify <run>`. The fix is confirmed when the blind test is now `accepted`. Suspects that are now `disputed` are the bad tests; suspects still `accepted` stay.
 2. Delete exactly the bad test functions from their existing files. Leave every other test in those files as it is. Run those files with the project's test command to check they still load.
 3. Promote the verified replacements, the accepted blind tests for that target:
 

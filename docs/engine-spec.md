@@ -328,7 +328,8 @@ In every mode: a test whose outcome is `flaky` or `skipped` on any label gets th
 **audit:**
 
 - blind tests are labelled as in `new`;
-- existing tests that pass while a blind test on the same target fails → the pair is queued, and the existing test is labelled `suspect-existing` if the verdict is `code-wrong`.
+- existing tests that pass while a blind test on the same target fails → the pair is queued, and the existing test is labelled `suspect-existing` if the verdict is `code-wrong`. Pairing is by unit name in the file, so it over-matches; after the code fix, the suspects that fail are the bad tests.
+- an `--existing` path that no longer exists (the agent deleted a file whose only tests were bad) is skipped by `exec`.
 
 **Verdict effects:**
 
