@@ -16,3 +16,6 @@ export { evaluateHook, normalize as normalizeHookEvent, hookOutput, editedPaths,
 export type { Decision, NormalizedEvent } from "./hooks";
 export { callTool, TOOLS as MCP_TOOLS, handle as handleMcp } from "./mcp";
 export { runBackend, childEnv } from "./backends";
+export { specPrompt, specSave } from "./spec";
+export { bundleEmit, ingest } from "./bundle";
+export { adjudicatePrompt, adjudicateSave } from "./adjudicate";

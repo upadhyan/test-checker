@@ -2825,6 +2825,9 @@ var init_lib = __esm({
     init_hooks();
     init_mcp();
     init_backends();
+    init_spec();
+    init_bundle();
+    init_adjudicate();
   }
 });
 
@@ -3715,8 +3718,11 @@ init_cli();
 export {
   TOOLS as MCP_TOOLS,
   Repo,
+  adjudicatePrompt,
+  adjudicateSave,
   bool,
   buildFixtureRepo,
+  bundleEmit,
   callTool,
   checkLeak,
   childEnv,
@@ -3729,6 +3735,7 @@ export {
   globToRegex,
   handle as handleMcp,
   hookOutput,
+  ingest,
   list,
   listFixtures,
   loadFixture,
@@ -3757,6 +3764,8 @@ export {
   runBackend,
   signatureLineCount,
   significantLines,
+  specPrompt,
+  specSave,
   str,
   submitTests,
   validate
