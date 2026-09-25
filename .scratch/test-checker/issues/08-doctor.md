@@ -4,7 +4,7 @@
 
 **Blocked by:** 05 — Exec hardening
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] `doctor` passes on a Python scratch repo using `examples/config.python.yaml`
 - [ ] Clear fix hints on failure

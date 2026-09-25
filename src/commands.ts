@@ -13,6 +13,16 @@ function need(a: Args, i: number, name: string): string {
   return v;
 }
 
+register("doctor", async (a) => {
+  const repo = Repo.open({ root: str(a, "root") });
+  const r = await (await import("./doctor")).doctor(repo, { use: list(a, "use"), log: bool(a, "json") || bool(a, "quiet") ? () => {} : undefined });
+  const human = [
+    ...r.checks.map((c) => `${c.ok ? "ok  " : "FAIL"} ${c.name}${c.detail ? `: ${c.detail}` : ""}${c.fix ? `\n     fix: ${c.fix}` : ""}`),
+    r.ok ? "doctor: all checks passed." : "doctor: fix the failing checks and run again.",
+  ].join("\n");
+  return { data: r, human, code: r.code };
+});
+
 register("run start", (a) => {
   const r = runStart(repoOf(a), { mode: str(a, "mode") ?? "", buggy: str(a, "buggy"), fixed: str(a, "fixed"), existing: list(a, "existing") });
   return { data: { run: r.id, mode: r.mode, revisions: r.revisions }, human: r.id };

@@ -69,7 +69,7 @@ function gitOk(cwd, args) {
   return run("git", args, { cwd }).code === 0;
 }
 function shell(command, opts) {
-  return new Promise((resolve2) => {
+  return new Promise((resolve3) => {
     const [sh, flag] = isWin ? ["cmd.exe", "/c"] : ["/bin/sh", "-c"];
     const child = spawn(sh, [flag, command], {
       cwd: opts.cwd,
@@ -93,11 +93,11 @@ function shell(command, opts) {
     }, opts.timeoutSec * 1e3) : void 0;
     child.on("error", (e) => {
       if (timer) clearTimeout(timer);
-      resolve2({ code: 127, stdout, stderr: stderr + String(e.message) });
+      resolve3({ code: 127, stdout, stderr: stderr + String(e.message) });
     });
     child.on("close", (code) => {
       if (timer) clearTimeout(timer);
-      resolve2({ code: code ?? 1, stdout, stderr, timedOut });
+      resolve3({ code: code ?? 1, stdout, stderr, timedOut });
     });
   });
 }
@@ -1116,16 +1116,16 @@ function runStart(repo, opts) {
   const id = newRunId();
   const revisions = {};
   const given = {};
-  const resolve2 = (label, rev) => {
+  const resolve3 = (label, rev) => {
     given[label] = rev;
     revisions[label] = rev === "WORKTREE" ? snapshotWorktree(repo, id) : repo.commit(rev);
   };
   if (mode === "bugfix") {
-    resolve2("buggy", opts.buggy ?? "HEAD");
-    resolve2("fixed", opts.fixed ?? "WORKTREE");
+    resolve3("buggy", opts.buggy ?? "HEAD");
+    resolve3("fixed", opts.fixed ?? "WORKTREE");
   } else {
     if (opts.buggy || opts.fixed) throw usage(`--buggy/--fixed only apply to bugfix mode`);
-    resolve2("current", "WORKTREE");
+    resolve3("current", "WORKTREE");
   }
   const existing = (opts.existing ?? []).map((p) => repo.rel(p));
   if (mode === "audit" && !existing.length) throw usage("audit mode needs --existing <test paths>");
@@ -1754,6 +1754,204 @@ var init_classify = __esm({
   }
 });
 
+// src/doctor.ts
+var doctor_exports = {};
+__export(doctor_exports, {
+  doctor: () => doctor
+});
+import * as fs12 from "node:fs";
+import * as path9 from "node:path";
+async function doctor(repo, opts) {
+  const checks = [];
+  const log = opts.log ?? ((s) => process.stderr.write(s + "\n"));
+  let cfg;
+  try {
+    cfg = repo.config;
+    checks.push({ name: "config", ok: true, detail: `valid against config.schema.json` });
+  } catch (e) {
+    checks.push({ name: "config", ok: false, detail: e.message, fix: "Fix the fields listed above; see references/config-reference.md." });
+    return { ok: false, checks, code: EXIT.REJECTED };
+  }
+  const src = repo.git(["ls-files", "-z"], { allowFail: true }).split("\0").find((f) => f && matchGlobs(f, cfg.source_globs));
+  if (!src) checks.push({ name: "source_globs", ok: false, detail: `no tracked file matches ${JSON.stringify(cfg.source_globs)}`, fix: "Point source_globs at the project's source files." });
+  else checks.push({ name: "source_globs", ok: true, detail: `e.g. ${src}` });
+  const stand = { id: "tcheck-doctor", file: src ?? "doctor", symbol: "doctor" };
+  const testDir = expandPath(cfg.test_dir, stand);
+  const name = (n) => path9.posix.join(testDir, expandPath(cfg.test_file_pattern, stand, n));
+  let files;
+  if (opts.use?.length) {
+    files = opts.use.map((p) => {
+      const abs = path9.resolve(p);
+      if (!fs12.existsSync(abs)) throw new TcheckError(`--use file not found: ${p}`, EXIT.USAGE);
+      return { path: path9.posix.join(testDir, path9.basename(abs)), content: fs12.readFileSync(abs, "utf8") };
+    });
+  } else {
+    const tpl = TEMPLATES.find((t) => t.match.test(cfg.framework));
+    if (!tpl) {
+      const a = name(1);
+      const b = name(2);
+      throw new TcheckError(
+        `doctor has no template for framework "${cfg.framework}". Write two trivial ${cfg.language} tests, one that passes and one that fails, for example at ${a} and ${b}, then run: tcheck doctor --use ${a} ${b}`,
+        EXIT.USAGE
+      );
+    }
+    const pkgDir = src ? path9.posix.dirname(src) : ".";
+    const goPkg = src && fs12.existsSync(path9.join(repo.root, src)) ? /^package\s+(\w+)/m.exec(fs12.readFileSync(path9.join(repo.root, src), "utf8"))?.[1] : void 0;
+    files = tpl.files({ name, pkg: goPkg ?? path9.posix.basename(pkgDir), javaPkg: packagePath(stand.file).replace(/\//g, ".") }).map((f) => ({ path: name(f.n), content: f.content }));
+  }
+  const snapId = `doctor-${randHex(6)}`;
+  const commit = snapshotWorktree(repo, snapId);
+  const wt = ensureWorktree(repo, commit);
+  try {
+    for (const f of files) {
+      const dst = path9.join(wt.dir, f.path);
+      fs12.mkdirSync(path9.dirname(dst), { recursive: true });
+      fs12.writeFileSync(dst, f.content);
+      wt.meta.composed.push(f.path);
+    }
+    wt.saveMeta();
+    checks.push({ name: "test files", ok: true, detail: files.map((f) => f.path).join(", ") });
+    const env = commandEnv(cfg);
+    const timeout = cfg.timeouts.per_command_seconds;
+    const junitDir = repo.p("runs", "_doctor");
+    fs12.rmSync(junitDir, { recursive: true, force: true });
+    fs12.mkdirSync(junitDir, { recursive: true });
+    const junit = path9.join(junitDir, "junit.xml");
+    const vars = { files: files.map((f) => f.path).join(" "), junit, test_dir: testDir, root: wt.dir };
+    for (const step of ["setup", "compile"]) {
+      const cmd = cfg.commands[step];
+      if (!cmd) continue;
+      log(`doctor: ${step}: ${cmd}`);
+      const r2 = await shell(fillCommand(cmd, vars), { cwd: wt.dir, env, timeoutSec: timeout });
+      const ok2 = r2.code === 0;
+      checks.push({ name: `commands.${step}`, ok: ok2, detail: ok2 ? "ok" : `exit ${r2.code}
+${(r2.stdout + r2.stderr).slice(-1500)}`, fix: ok2 ? void 0 : hint(r2.code, cfg.framework, step) });
+      if (!ok2) return { ok: false, checks, code: EXIT.COMMAND };
+      if (step === "setup") {
+        wt.meta.setup_done = true;
+        wt.saveMeta();
+      }
+    }
+    log(`doctor: run: ${cfg.commands.run}`);
+    const r = await shell(fillCommand(cfg.commands.run, vars), { cwd: wt.dir, env, timeoutSec: timeout });
+    const cases = readJUnitPath(junitDir);
+    const output = (r.stdout + r.stderr).slice(-1500);
+    checks.push({ name: "commands.run", ok: r.code !== 127 && !r.timedOut, detail: `exit ${r.code}${r.timedOut ? " (timeout)" : ""}`, fix: r.code === 127 ? hint(127, cfg.framework, "run") : void 0 });
+    if (!cases.length) {
+      checks.push({
+        name: "junit",
+        ok: false,
+        detail: `no JUnit XML test cases at {junit}.
+${output}`,
+        fix: `commands.run must write JUnit XML to {junit} (a file, or a directory of XML files) and run only {files}. ${hint(r.code, cfg.framework, "run")}`
+      });
+      return { ok: false, checks, code: EXIT.COMMAND };
+    }
+    const pass = cases.filter((c) => c.outcome === "pass").length;
+    const fail = cases.filter((c) => c.outcome === "failure" || c.outcome === "error").length;
+    const ok = pass >= 1 && fail >= 1;
+    checks.push({
+      name: "junit",
+      ok,
+      detail: `${cases.length} test case(s): ${pass} pass, ${fail} fail`,
+      fix: ok ? void 0 : pass === 0 ? `Nothing passed: the tests may not import or run. Output:
+${output}` : "The failing test did not fail: check that {files} is honoured and test ids are unique."
+    });
+    return { ok, checks, code: ok ? EXIT.OK : EXIT.COMMAND };
+  } finally {
+    for (const f of wt.meta.composed) fs12.rmSync(path9.join(wt.dir, f), { force: true });
+    repo.git(["worktree", "remove", "--force", wt.dir], { allowFail: true });
+    fs12.rmSync(repo.p("worktrees", "_cache", `${commit}.json`), { force: true });
+    repo.git(["update-ref", "-d", `refs/tcheck/${snapId}/worktree`], { allowFail: true });
+  }
+}
+function hint(code, framework, step) {
+  if (code === 127) return `A command in commands.${step} was not found on PATH. Install it or use the full path.`;
+  if (/nextest/i.test(framework)) return 'cargo-nextest needs a JUnit profile: add `[profile.tcheck.junit]\\npath = "junit.xml"` to .config/nextest.toml.';
+  if (/jest/i.test(framework) && !/vitest/i.test(framework)) return "jest needs the jest-junit reporter (ask the user before installing it).";
+  if (/go/i.test(framework)) return "go test needs gotestsum (or go-junit-report) for JUnit output.";
+  return "Run the command by hand in the repo to see what it does.";
+}
+var cls, TEMPLATES;
+var init_doctor = __esm({
+  "src/doctor.ts"() {
+    "use strict";
+    init_exec();
+    init_junit();
+    init_run();
+    init_util();
+    cls = (file) => path9.basename(file).replace(/\..*$/, "");
+    TEMPLATES = [
+      { match: /pytest/i, files: () => [{ n: 1, content: "def test_tcheck_doctor_pass():\n    assert 1 + 1 == 2\n\n\ndef test_tcheck_doctor_fail():\n    assert 1 + 1 == 3\n" }] },
+      {
+        match: /unittest/i,
+        files: () => [{ n: 1, content: "import unittest\n\n\nclass TCheckDoctor(unittest.TestCase):\n    def test_pass(self):\n        self.assertEqual(1 + 1, 2)\n\n    def test_fail(self):\n        self.assertEqual(1 + 1, 3)\n" }]
+      },
+      { match: /vitest/i, files: () => [{ n: 1, content: "import { test, expect } from 'vitest';\n\ntest('tcheck doctor pass', () => { expect(1 + 1).toBe(2); });\ntest('tcheck doctor fail', () => { expect(1 + 1).toBe(3); });\n" }] },
+      { match: /jest/i, files: () => [{ n: 1, content: "test('tcheck doctor pass', () => { expect(1 + 1).toBe(2); });\ntest('tcheck doctor fail', () => { expect(1 + 1).toBe(3); });\n" }] },
+      {
+        match: /\bgo\b|go test|gotestsum/i,
+        files: ({ pkg }) => [{ n: 1, content: `package ${pkg}
+
+import "testing"
+
+func TestTCheckDoctorPass(t *testing.T) {}
+
+func TestTCheckDoctorFail(t *testing.T) { t.Fatal("intentional failure") }
+` }]
+      },
+      {
+        match: /junit\s*5|jupiter/i,
+        files: ({ name, javaPkg }) => [
+          {
+            n: 1,
+            content: `${javaPkg ? `package ${javaPkg};
+
+` : ""}import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+class ${cls(name(1))} {
+  @Test void pass() { assertEquals(2, 1 + 1); }
+  @Test void fail() { assertEquals(3, 1 + 1); }
+}
+`
+          }
+        ]
+      },
+      {
+        match: /junit/i,
+        files: ({ name, javaPkg }) => [
+          {
+            n: 1,
+            content: `${javaPkg ? `package ${javaPkg};
+
+` : ""}import org.junit.Test;
+import static org.junit.Assert.assertEquals;
+
+public class ${cls(name(1))} {
+  @Test public void pass() { assertEquals(2, 1 + 1); }
+  @Test public void fail() { assertEquals(3, 1 + 1); }
+}
+`
+          }
+        ]
+      },
+      { match: /cargo|nextest|rust/i, files: () => [{ n: 1, content: "#[test]\nfn tcheck_doctor_pass() { assert_eq!(2, 1 + 1); }\n\n#[test]\nfn tcheck_doctor_fail() { assert_eq!(3, 1 + 1); }\n" }] },
+      {
+        match: /xunit|dotnet/i,
+        files: ({ name }) => [{ n: 1, content: `using Xunit;
+
+public class ${cls(name(1))}
+{
+    [Fact] public void Pass() { Assert.Equal(2, 1 + 1); }
+    [Fact] public void Fail() { Assert.Equal(3, 1 + 1); }
+}
+` }]
+      }
+    ];
+  }
+});
+
 // src/commands.ts
 var commands_exports = {};
 function need(a, i, name) {
@@ -1772,6 +1970,17 @@ var init_commands = __esm({
     init_classify();
     init_util();
     repoOf = (a) => Repo.open({ root: str(a, "root") });
+    register("doctor", async (a) => {
+      const repo = Repo.open({ root: str(a, "root") });
+      const r = await (await Promise.resolve().then(() => (init_doctor(), doctor_exports))).doctor(repo, { use: list(a, "use"), log: bool(a, "json") || bool(a, "quiet") ? () => {
+      } : void 0 });
+      const human = [
+        ...r.checks.map((c) => `${c.ok ? "ok  " : "FAIL"} ${c.name}${c.detail ? `: ${c.detail}` : ""}${c.fix ? `
+     fix: ${c.fix}` : ""}`),
+        r.ok ? "doctor: all checks passed." : "doctor: fix the failing checks and run again."
+      ].join("\n");
+      return { data: r, human, code: r.code };
+    });
     register("run start", (a) => {
       const r = runStart(repoOf(a), { mode: str(a, "mode") ?? "", buggy: str(a, "buggy"), fixed: str(a, "fixed"), existing: list(a, "existing") });
       return { data: { run: r.id, mode: r.mode, revisions: r.revisions }, human: r.id };
@@ -1804,7 +2013,7 @@ ${r.setup_error}`] : []).join("\n");
 });
 
 // src/cli.ts
-import * as fs12 from "node:fs";
+import * as fs13 from "node:fs";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 function parseArgs(argv) {
   const a = { _: [], flags: {} };
@@ -1876,7 +2085,7 @@ async function loadCommands() {
 function isMain() {
   if (!process.argv[1]) return false;
   try {
-    return fs12.realpathSync(process.argv[1]) === fs12.realpathSync(fileURLToPath2(import.meta.url));
+    return fs13.realpathSync(process.argv[1]) === fs13.realpathSync(fileURLToPath2(import.meta.url));
   } catch {
     return false;
   }
