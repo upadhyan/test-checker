@@ -27,7 +27,7 @@ export function assertNoLeak(repo: Repo, runId: string, text: string, where: str
 
 let bundleSchemaCache: any;
 export function bundleSchema(): any {
-  bundleSchemaCache ??= readJson(path.join(pluginRoot(), "skills", "verify-tests", "references", "bundle.schema.json"));
+  bundleSchemaCache ??= readJson(path.join(pluginRoot(), "skills", "test-checker", "references", "bundle.schema.json"));
   return bundleSchemaCache;
 }
 

@@ -1,7 +1,7 @@
 {
   "name": "@upadhyan/test-checker",
-  "version": "0.1.0",
-  "description": "Verify LLM-written unit tests: blind spec-first test generation, dual-version execution (buggy vs fixed), and misguided-test detection. Language-agnostic.",
+  "version": "0.2.0",
+  "description": "Audit and verify unit tests: blind spec-first test generation, dual-version execution (buggy vs fixed), and replacement of tests that enshrine bugs. Language-agnostic.",
   "license": "MIT",
   "author": {
     "name": "Nakul Upadhya"

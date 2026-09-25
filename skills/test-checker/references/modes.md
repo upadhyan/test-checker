@@ -38,13 +38,15 @@ Success signal: at least one `effective` test per target, and zero unresolved `m
 
 ## audit
 
-**Use when** checking whether existing tests are trustworthy.
+**Use when** checking whether existing tests are trustworthy. This is the default mode: "audit my tests".
 
-1. The engine runs the existing tests (`--existing <paths>`) and a fresh blind suite on the current code.
-2. **Disagreement:** an existing test passes, but a blind test on the same unit fails. That's queued for adjudication with both tests shown.
-3. **Outcome:** `code-wrong` means the existing test likely enshrines a bug. The report names it as `suspect-existing`.
-4. **Limitation:** "same unit" is known, but "same behaviour" isn't. The adjudicator decides whether the two tests are actually about the same case.
+1. The agent inventories the unit test files and maps them to the units they call. Each unit becomes a target.
+2. The engine runs the existing tests (`--existing <paths>`) and a fresh blind suite on the current code.
+3. **Disagreement:** an existing test passes, but a blind test on the same unit fails. That's queued for adjudication with both tests shown.
+4. **Outcome:** `code-wrong` means the existing test likely enshrines a bug. The report names it as `suspect-existing`.
+5. **Rewrite:** once the code is fixed (the blind test passes and the suspect test fails), the agent deletes the suspect test functions and promotes the target's accepted blind tests in their place. Every other existing test is kept.
+6. **Limitation:** "same unit" is known, but "same behaviour" isn't. The adjudicator decides whether the two tests are actually about the same case.
 
 ## Choosing scope
 
-Default scope is changed units since the last verified snapshot (`tcheck scope`). Each target costs about four model calls, plus up to three repair rounds. Whole-file or whole-module scope should be the user's explicit choice.
+In `bugfix` and `new`, default scope is changed units since the last verified snapshot (`tcheck scope`). In `audit`, it is every unit the existing tests call, confirmed with the user first. Each target costs about four model calls, plus up to three repair rounds. Whole-file or whole-module scope should be the user's explicit choice.

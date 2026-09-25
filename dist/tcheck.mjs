@@ -457,7 +457,7 @@ function findRoot(opts = {}) {
   return r.code === 0 ? path2.resolve(r.stdout.trim()) : null;
 }
 function configSchema() {
-  return readJson(path2.join(pluginRoot(), "skills", "verify-tests", "references", "config.schema.json"));
+  return readJson(path2.join(pluginRoot(), "skills", "test-checker", "references", "config.schema.json"));
 }
 function parseConfig(text, where = "config.yaml") {
   let raw;
@@ -714,7 +714,7 @@ function envReport(opts) {
     }
   }
   if (backend === "none") warnings.push("no blind backend available: install claude, codex, opencode or pi, or configure blind.backend: api");
-  const ref = path4.join(pluginRoot(), "skills", "verify-tests", "references", "harness", `${harnessRefName(harness)}.md`);
+  const ref = path4.join(pluginRoot(), "skills", "test-checker", "references", "harness", `${harnessRefName(harness)}.md`);
   return {
     harness,
     engine: `node "${enginePath()}"`,
@@ -1459,7 +1459,7 @@ ${advice}`, r);
   return { shingle_ratio: r.shingle_ratio };
 }
 function bundleSchema() {
-  bundleSchemaCache ??= readJson(path10.join(pluginRoot(), "skills", "verify-tests", "references", "bundle.schema.json"));
+  bundleSchemaCache ??= readJson(path10.join(pluginRoot(), "skills", "test-checker", "references", "bundle.schema.json"));
   return bundleSchemaCache;
 }
 function jsonStrings(v) {
@@ -2425,7 +2425,7 @@ function stopGate(repo, ev) {
   const dirty = dirtyFiles(repo);
   if (!dirty.length) return { action: "allow" };
   const list2 = dirty.slice(0, 10).join(", ") + (dirty.length > 10 ? `, \u2026 (${dirty.length - 10} more)` : "");
-  const msg = `${dirty.length} changed source file(s) are unverified: ${list2}. Run the verify-tests skill, or ask the user to waive.`;
+  const msg = `${dirty.length} changed source file(s) are unverified: ${list2}. Run the test-checker skill, or ask the user to waive.`;
   if (gate === "block" && !ev.stopHookActive) return { action: "block", reason: msg };
   return { action: "warn", message: msg };
 }
@@ -2433,7 +2433,7 @@ function sessionStart(repo) {
   const n = dirtyFiles(repo).length;
   return {
     action: "context",
-    text: `test-checker is active (gate: ${repo.config.gate}).${n ? ` ${n} source file(s) changed since last verification. Use the verify-tests skill before finishing work on them.` : ""}`
+    text: `test-checker is active (gate: ${repo.config.gate}).${n ? ` ${n} source file(s) changed since last verification. Use the test-checker skill before finishing work on them.` : ""}`
   };
 }
 function evaluateHook(ev, opts = {}) {
@@ -2579,7 +2579,7 @@ function handle(msg) {
       return reply({
         protocolVersion: PROTOCOLS.includes(asked) ? asked : PROTOCOLS[0],
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "tcheck", version: "0.1.0" },
+        serverInfo: { name: "tcheck", version: "0.2.0" },
         instructions: "test-checker's internal role tools. Only the test-checker subagents should call these."
       });
     }

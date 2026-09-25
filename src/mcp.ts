@@ -88,7 +88,7 @@ export function handle(msg: any): any | undefined {
       return reply({
         protocolVersion: PROTOCOLS.includes(asked) ? asked : PROTOCOLS[0],
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "tcheck", version: "0.1.0" },
+        serverInfo: { name: "tcheck", version: "0.2.0" },
         instructions: "test-checker's internal role tools. Only the test-checker subagents should call these.",
       });
     }

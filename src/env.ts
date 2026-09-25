@@ -86,7 +86,7 @@ export function envReport(opts: { root?: string; harness?: string }) {
     }
   }
   if (backend === "none") warnings.push("no blind backend available: install claude, codex, opencode or pi, or configure blind.backend: api");
-  const ref = path.join(pluginRoot(), "skills", "verify-tests", "references", "harness", `${harnessRefName(harness)}.md`);
+  const ref = path.join(pluginRoot(), "skills", "test-checker", "references", "harness", `${harnessRefName(harness)}.md`);
   return {
     harness,
     engine: `node "${enginePath()}"`,

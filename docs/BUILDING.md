@@ -8,7 +8,7 @@ This repo is a multi-harness agent plugin. The non-code parts (manifests, skills
 
 1. `docs/engine-spec.md`: **the contract.** Implement it; don't redesign it. If something in it is wrong or unbuildable, stop and raise it, then update the spec in the same change.
 2. `docs/plugin-design.md`: why things are shaped this way.
-3. `skills/verify-tests/SKILL.md` and `references/`: how agents will call the engine. Every command the skill mentions must exist, with the flags shown.
+3. `skills/test-checker/SKILL.md` and `references/`: how agents will call the engine. Every command the skill mentions must exist, with the flags shown.
 
 ## What to build
 

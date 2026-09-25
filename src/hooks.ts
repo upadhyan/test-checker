@@ -126,7 +126,7 @@ function stopGate(repo: Repo, ev: NormalizedEvent): Decision {
   const dirty = dirtyFiles(repo);
   if (!dirty.length) return { action: "allow" };
   const list = dirty.slice(0, 10).join(", ") + (dirty.length > 10 ? `, … (${dirty.length - 10} more)` : "");
-  const msg = `${dirty.length} changed source file(s) are unverified: ${list}. Run the verify-tests skill, or ask the user to waive.`;
+  const msg = `${dirty.length} changed source file(s) are unverified: ${list}. Run the test-checker skill, or ask the user to waive.`;
   if (gate === "block" && !ev.stopHookActive) return { action: "block", reason: msg };
   return { action: "warn", message: msg };
 }
@@ -135,7 +135,7 @@ function sessionStart(repo: Repo): Decision {
   const n = dirtyFiles(repo).length;
   return {
     action: "context",
-    text: `test-checker is active (gate: ${repo.config.gate}).${n ? ` ${n} source file(s) changed since last verification. Use the verify-tests skill before finishing work on them.` : ""}`,
+    text: `test-checker is active (gate: ${repo.config.gate}).${n ? ` ${n} source file(s) changed since last verification. Use the test-checker skill before finishing work on them.` : ""}`,
   };
 }
 

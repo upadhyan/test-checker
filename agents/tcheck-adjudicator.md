@@ -1,6 +1,6 @@
 ---
 name: tcheck-adjudicator
-description: test-checker internal role. Decides whether a failing blind test or the code is wrong, from a payload produced by `tcheck adjudicate prompt`. Use only when the verify-tests skill says to.
+description: test-checker internal role. Decides whether a failing blind test or the code is wrong, from a payload produced by `tcheck adjudicate prompt`. Use only when the test-checker skill says to.
 tools: mcp__plugin_test-checker_tcheck__save_verdict
 model: inherit
 effort: high

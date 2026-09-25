@@ -180,7 +180,7 @@ All hook logic lives in `tcheck hook <event>`. It reads the harness's JSON on st
 | Guard | Event (CC / Codex · OpenCode · Pi) | Behaviour |
 |---|---|---|
 | **protect-verified-tests** | PreToolUse on Edit/Write · `tool.execute.before` · `tool_call` | Blocks edits to files under `test_dir` unless the ledger marks that test `test-wrong` or the user overrode. Stops "make the test pass by changing the assertion." |
-| **stop-gate** | Stop · `session.idle` · `agent_end` | Dirty files are computed from `git status` against the verified snapshot, so no edit tracking is needed and edits made through the shell count too. If dirty methods have no current report, or have unresolved misguided/FP/ambiguous tests, blocks with a message telling the agent to run `/verify-tests`. Has a bypass (`TCHECK_GATE=off` or a ledger override) so it can't trap you. |
+| **stop-gate** | Stop · `session.idle` · `agent_end` | Dirty files are computed from `git status` against the verified snapshot, so no edit tracking is needed and edits made through the shell count too. If dirty methods have no current report, or have unresolved misguided/FP/ambiguous tests, blocks with a message telling the agent to run `/test-checker`. Has a bypass (`TCHECK_GATE=off` or a ledger override) so it can't trap you. |
 | **bundle-handoff guard** | PreToolUse on the subagent-launch tool · `tool.execute.before` on `task` | Allows a blind-writer or repair launch only if its prompt is a frozen bundle (hash match). Enforces Rule 1 in Claude Code and OpenCode. Not needed in Pi or Codex, where code loads the bundle. |
 
 The OpenCode and Pi event names above come from their docs. Confirm the exact end-of-turn event when building each pathway.
@@ -200,7 +200,7 @@ This follows the [ponytail](https://github.com/DietrichGebert/ponytail) model. T
 | Codex | `codex plugin marketplace add <you>/test-checker` → `codex plugin add test-checker@test-checker` |
 | OpenCode | `{ "plugin": ["@<you>/test-checker"] }` in `opencode.json` (npm package from the same repo) |
 | Pi | `pi install git:github.com/<you>/test-checker` |
-| Anything else | Copy `skills/verify-tests/` into the harness's skills dir; CLI via `node dist/tcheck.mjs` |
+| Anything else | Copy `skills/test-checker/` into the harness's skills dir; CLI via `node dist/tcheck.mjs` |
 
 Per-harness manifests sit side by side at the repo root:
 
@@ -219,7 +219,7 @@ test-checker/
 ├── src/                           # engine TypeScript source                 [code]
 ├── prompts/                       # every model-facing instruction (single source)
 ├── skills/
-│   ├── verify-tests/SKILL.md      # the loop, harness-neutral
+│   ├── test-checker/SKILL.md      # the loop, harness-neutral
 │   │   └── references/
 │   │       ├── harness/{claude-code,codex,opencode,pi,generic}.md
 │   │       ├── modes.md, config-reference.md

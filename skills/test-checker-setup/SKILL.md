@@ -1,12 +1,12 @@
 ---
 name: test-checker-setup
-description: Set up test-checker in a repository by writing and validating .test-checker/config.yaml. Use when the user asks to set up, configure or initialise test-checker, or when verify-tests finds no config.
+description: Set up test-checker in a repository by writing and validating .test-checker/config.yaml. Use when the user asks to set up, configure or initialise test-checker, or when the test-checker skill finds no config.
 license: MIT
 ---
 
 # test-checker-setup
 
-The goal is a working `.test-checker/config.yaml` that the user has confirmed. Every field is documented in `../verify-tests/references/config-reference.md`, and there are ready-made examples in the plugin's `examples/` folder.
+The goal is a working `.test-checker/config.yaml` that the user has confirmed. Every field is documented in `../test-checker/references/config-reference.md`, and there are ready-made examples in the plugin's `examples/` folder.
 
 ## Steps
 

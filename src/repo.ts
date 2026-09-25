@@ -56,7 +56,7 @@ export interface Config {
 }
 
 export function configSchema(): any {
-  return readJson(path.join(pluginRoot(), "skills", "verify-tests", "references", "config.schema.json"));
+  return readJson(path.join(pluginRoot(), "skills", "test-checker", "references", "config.schema.json"));
 }
 
 /** Parse + validate raw config text; returns the config with defaults applied. */

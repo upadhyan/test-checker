@@ -5,7 +5,7 @@ The contract for `dist/tcheck.mjs`: the CLI, the MCP server, the hook evaluator,
 Companion docs:
 
 - `plugin-design.md`: why things are shaped this way.
-- `skills/verify-tests/`: the agent-facing procedure that drives these commands.
+- `skills/test-checker/`: the agent-facing procedure that drives these commands.
 - `prompts/`: the templates this engine renders.
 
 Items marked **VERIFY** depend on harness behaviour that must be confirmed during the build.
@@ -96,7 +96,7 @@ Precedence:
   "harness": "claude-code",
   "engine": "node \"/…/test-checker/dist/tcheck.mjs\"",
   "plugin_root": "/…/test-checker",
-  "harness_reference": "/…/skills/verify-tests/references/harness/claude-code.md",
+  "harness_reference": "/…/skills/test-checker/references/harness/claude-code.md",
   "node": "22.4.0", "git": "2.46.0",
   "repo_root": "/…/myrepo", "config": "present|missing|invalid",
   "blind_backend": "native|api|codex|claude|opencode|pi|none",
@@ -466,10 +466,10 @@ Every hook records `hooks_seen_at`, and must finish in < 300 ms in the common pa
 
 | Event | Logic |
 |---|---|
-| `session-start` | Config present → `context`: `"test-checker is active (gate: <mode>). <n> source file(s) changed since last verification. Use the verify-tests skill before finishing work on them."` Omit the second sentence when n = 0. |
+| `session-start` | Config present → `context`: `"test-checker is active (gate: <mode>). <n> source file(s) changed since last verification. Use the test-checker skill before finishing work on them."` Omit the second sentence when n = 0. |
 | `handoff-guard` | Only if `tool_input.subagent_type` ∈ {`test-checker:tcheck-blind-writer`, `test-checker:tcheck-repair`} (or OpenCode names). Allow iff `tool_input.prompt.trim()` equals a registered, unconsumed payload file's text of the matching role. Otherwise deny: `"Blind roles must receive the exact output of \`tcheck bundle emit\`. Re-emit and pass it verbatim."` |
 | `protect-tests` | Collect target paths from `file_path`, `notebook_path`, or apply_patch text (`*** Add File:`, `*** Update File:`, `*** Delete File:`, `*** Move to:`). Deny if any path is protected (`state.protected`, `protect` globs, `.test-checker/generated/**`) and not quarantined, not overridden, and `TCHECK_ALLOW_TEST_EDITS` isn't `1`. Reason names the test and says how to proceed (adjudicate, or ask the user). |
-| `stop-gate` | `gate: off` → allow. Compute dirty files (§10). None → allow. `warn` → `warn`, listing files. `block` → `block` unless `stop_hook_active` is true (then `warn`, to avoid loops). Reason: `"<n> changed source file(s) are unverified: … Run the verify-tests skill, or ask the user to waive."` |
+| `stop-gate` | `gate: off` → allow. Compute dirty files (§10). None → allow. `warn` → `warn`, listing files. `block` → `block` unless `stop_hook_active` is true (then `warn`, to avoid loops). Reason: `"<n> changed source file(s) are unverified: … Run the test-checker skill, or ask the user to waive."` |
 
 **Output mapping:**
 
@@ -548,5 +548,4 @@ Status of every **VERIFY** item and of known gaps after the first build (2026-09
 | Cowork marker (§4) | Open. |
 | Windows | Untested. Paths use `node:path` and commands go through `cmd /c`, but the `opencode`/`pi` backends pass the prompt as an argument, which `shell: true` on Windows does not quote. |
 | Worktree cache growth | Cached worktrees are never pruned automatically (§8.1). |
-| Prompt suggestion (not applied) | `blind-write.md` could add "keep each test fast; avoid inputs so large the implementation may not finish", after the `n = 10**30` finding (§8.3). Prompt wording is research-derived, so this waits for the owner's decision. |
 | Selftest criterion 2 in the paper setting | Fails on `boundary` and `null_guard` (§14); `--with-intent` has not been run yet. |

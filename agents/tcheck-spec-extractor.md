@@ -1,6 +1,6 @@
 ---
 name: tcheck-spec-extractor
-description: test-checker internal role. Derives the intended specification of one method from a payload produced by `tcheck spec prompt`. Use only when the verify-tests skill says to; the prompt must be the payload verbatim.
+description: test-checker internal role. Derives the intended specification of one method from a payload produced by `tcheck spec prompt`. Use only when the test-checker skill says to; the prompt must be the payload verbatim.
 tools: mcp__plugin_test-checker_tcheck__save_spec
 model: inherit
 effort: high
