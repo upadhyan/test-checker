@@ -12,3 +12,6 @@ export { renderTemplate, parseFrame, frame, loadPayload, payloadIndex } from "./
 export { parseTextSubmission, submitTests } from "./bundle";
 export { parseSpecOutput } from "./spec";
 export { mapRange, parseVerdict } from "./adjudicate";
+export { evaluateHook, normalize as normalizeHookEvent, hookOutput, editedPaths, protectGlobs } from "./hooks";
+export type { Decision, NormalizedEvent } from "./hooks";
+export { callTool, TOOLS as MCP_TOOLS, handle as handleMcp } from "./mcp";

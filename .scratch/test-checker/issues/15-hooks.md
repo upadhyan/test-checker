@@ -4,7 +4,7 @@
 
 **Blocked by:** 07 — Unverified-file tracking: `status`, `scope`, `waive`, 12 — Bundles, emit, ingest: the manual blind loop, 13 — Adjudication, report and promote
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] No-config fast path exits immediately
 - [ ] Handoff guard denies a hand-edited payload

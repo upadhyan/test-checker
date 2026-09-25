@@ -4,7 +4,7 @@
 
 **Blocked by:** 13 — Adjudication, report and promote
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] initialize / tools/list / tools/call work over stdio
 - [ ] Path and size limits enforced

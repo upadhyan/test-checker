@@ -10,6 +10,8 @@ import { bundleBuild, bundleEmit, ingest } from "./bundle";
 import { adjudicateOverride, adjudicatePrompt, adjudicateSave, queue } from "./adjudicate";
 import { report } from "./report";
 import { promote } from "./promote";
+import { runHookCli } from "./hooks";
+import { serve } from "./mcp";
 
 const repoOf = (a: Args) => Repo.open({ root: str(a, "root") });
 function need(a: Args, i: number, name: string): string {
@@ -26,6 +28,20 @@ register("doctor", async (a) => {
     r.ok ? "doctor: all checks passed." : "doctor: fix the failing checks and run again.",
   ].join("\n");
   return { data: r, human, code: r.code };
+});
+
+register("hook", async (a) => {
+  try {
+    await runHookCli(a._[1] ?? "", str(a, "harness"), str(a, "root"));
+  } catch (e: any) {
+    process.stderr.write(`tcheck hook: ${e?.message ?? e}\n`); // hooks never break the session
+  }
+  return { data: undefined, code: 0 };
+});
+
+register("mcp", async () => {
+  await serve();
+  return { data: undefined };
 });
 
 register("run start", (a) => {

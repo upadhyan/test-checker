@@ -2344,6 +2344,327 @@ var init_adjudicate = __esm({
   }
 });
 
+// src/hooks.ts
+import * as fs17 from "node:fs";
+import * as path14 from "node:path";
+function normalize2(event, raw) {
+  const input = raw?.tool_input ?? raw?.input;
+  return {
+    event,
+    tool: raw?.tool_name ?? raw?.tool,
+    input,
+    subagent: input?.subagent_type ?? input?.agent ?? raw?.subagent,
+    agentType: raw?.agent_type,
+    stopHookActive: !!(raw?.stop_hook_active ?? raw?.stopHookActive),
+    cwd: raw?.cwd ?? process.cwd()
+  };
+}
+function repoFor(ev, root) {
+  const r = findRoot({ root, cwd: ev.cwd, gitFallback: false });
+  if (!r || !fs17.existsSync(path14.join(r, STATE_DIR, "config.yaml"))) return null;
+  return new Repo(r);
+}
+function touchHooksSeen(repo) {
+  const seen = repo.state().hooks_seen_at;
+  if (!seen || Date.now() - Date.parse(seen) > 3600 * 1e3) repo.updateState((s) => s.hooks_seen_at = nowIso());
+}
+function editedPaths(input) {
+  const out = [];
+  const visit = (v, key) => {
+    if (typeof v === "string") {
+      if (key === "file_path" || key === "notebook_path" || key === "filePath" || key === "path") out.push(v);
+      for (const m of v.matchAll(/^\*\*\* (?:Add File|Update File|Delete File|Move to):\s*(.+?)\s*$/gm)) out.push(m[1]);
+    } else if (Array.isArray(v)) v.forEach((x) => visit(x));
+    else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) visit(x, k);
+  };
+  visit(input);
+  return [...new Set(out)];
+}
+function protectGlobs(repo) {
+  const c = repo.config;
+  const pat = c.test_file_pattern.replace(/\{[^}]+\}/g, "*");
+  const dirGlob = (d) => d.replace(/\{(pkg_dir|package_path)\}/g, "**").replace(/\{[^}]+\}/g, "*").replace(/\/+$/, "");
+  const globs = [...c.protect, `${STATE_DIR}/generated/**`, path14.posix.join(dirGlob(c.test_dir), pat)];
+  if (c.promote_dir) globs.push(path14.posix.join(dirGlob(c.promote_dir), pat));
+  return globs;
+}
+function protectTests(repo, ev) {
+  if (process.env.TCHECK_ALLOW_TEST_EDITS === "1") return { action: "allow" };
+  const state = repo.state();
+  const quarantined = new Set(state.quarantined);
+  const globs = protectGlobs(repo);
+  for (const p of editedPaths(ev.input)) {
+    const rel = toPosix(path14.isAbsolute(p) ? path14.relative(repo.root, p) : p).replace(/^\.\//, "");
+    if (rel.startsWith("..")) continue;
+    const entry = state.protected[rel];
+    if (!entry && !matchGlobs(rel, globs)) continue;
+    const stem = path14.posix.basename(rel).split(".")[0];
+    const ids = entry?.test_ids ?? [...quarantined].filter((q2) => q2.split("::")[1]?.split(".").includes(stem));
+    if (ids.some((id) => quarantined.has(id))) continue;
+    const what = entry ? `verified test(s) ${ids.map((i) => i.split("::").pop()).join(", ")}` : rel.startsWith(`${STATE_DIR}/generated/`) ? "a generated blind test" : "a protected test file";
+    return {
+      action: "deny",
+      reason: `${rel} is ${what}. Don't edit tests to make them pass: send the failing test to adjudication (\`tcheck adjudicate prompt <run> <test>\`), or ask the user. A test-wrong verdict or \`tcheck adjudicate override\` unlocks it.`
+    };
+  }
+  return { action: "allow" };
+}
+function handoffGuard(repo, ev) {
+  const role = ev.subagent ? BLIND_AGENTS[ev.subagent] : void 0;
+  if (!role) return { action: "allow" };
+  const prompt = String(ev.input?.prompt ?? "").trim();
+  const f = parseFrame(prompt);
+  if (!f) return { action: "deny", reason: HANDOFF_DENY };
+  const { entry, full } = loadPayload(repo, f.id);
+  if (entry.role !== role || entry.consumed || full.trim() !== prompt) return { action: "deny", reason: HANDOFF_DENY };
+  return { action: "allow" };
+}
+function stopGate(repo, ev) {
+  const gate = process.env.TCHECK_GATE === "off" ? "off" : repo.config.gate;
+  if (gate === "off") return { action: "allow" };
+  const dirty = dirtyFiles(repo);
+  if (!dirty.length) return { action: "allow" };
+  const list2 = dirty.slice(0, 10).join(", ") + (dirty.length > 10 ? `, \u2026 (${dirty.length - 10} more)` : "");
+  const msg = `${dirty.length} changed source file(s) are unverified: ${list2}. Run the verify-tests skill, or ask the user to waive.`;
+  if (gate === "block" && !ev.stopHookActive) return { action: "block", reason: msg };
+  return { action: "warn", message: msg };
+}
+function sessionStart(repo) {
+  const n = dirtyFiles(repo).length;
+  return {
+    action: "context",
+    text: `test-checker is active (gate: ${repo.config.gate}).${n ? ` ${n} source file(s) changed since last verification. Use the verify-tests skill before finishing work on them.` : ""}`
+  };
+}
+function evaluateHook(ev, opts = {}) {
+  let repo = null;
+  try {
+    repo = repoFor(ev, opts.root);
+    if (!repo) return { action: "allow" };
+    touchHooksSeen(repo);
+    let d;
+    switch (ev.event) {
+      case "session-start":
+        d = sessionStart(repo);
+        break;
+      case "handoff-guard":
+        d = handoffGuard(repo, ev);
+        break;
+      case "protect-tests":
+        d = protectTests(repo, ev);
+        break;
+      case "stop-gate":
+        d = stopGate(repo, ev);
+        break;
+      default:
+        d = { action: "allow" };
+    }
+    if (d.action === "deny" || d.action === "block") repo.ledger("hook_blocked", { event: ev.event, reason: d.reason });
+    return d;
+  } catch (e) {
+    process.stderr.write(`tcheck hook ${ev.event}: internal error: ${e?.message ?? e}
+`);
+    if (ev.event === "handoff-guard") {
+      try {
+        repo?.ledger("hook_blocked", { event: ev.event, reason: `internal error: ${e?.message ?? e}` });
+      } catch {
+      }
+      return { action: "deny", reason: `${HANDOFF_DENY} (${e?.message ?? e})` };
+    }
+    return { action: "allow" };
+  }
+}
+function hookOutput(d, harness) {
+  void harness;
+  switch (d.action) {
+    case "deny":
+      return { stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: d.reason } }), stderr: "" };
+    case "block":
+      return { stdout: JSON.stringify({ decision: "block", reason: d.reason }), stderr: "" };
+    case "warn":
+      return { stdout: JSON.stringify({ systemMessage: d.message }), stderr: "" };
+    case "context":
+      return { stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: d.text } }), stderr: "" };
+    default:
+      return { stdout: "", stderr: "" };
+  }
+}
+async function runHookCli(event, harnessFlag, root) {
+  if (!HOOK_EVENTS.includes(event)) {
+    process.stderr.write(`tcheck hook: unknown event ${event}
+`);
+    return;
+  }
+  let raw = {};
+  try {
+    const text = fs17.readFileSync(0, "utf8");
+    raw = text.trim() ? JSON.parse(text) : {};
+  } catch (e) {
+    if (event === "handoff-guard") {
+      process.stdout.write(hookOutput({ action: "deny", reason: `${HANDOFF_DENY} (unreadable hook input)` }, "claude-code").stdout + "\n");
+      return;
+    }
+    process.stderr.write(`tcheck hook ${event}: unreadable input: ${e?.message ?? e}
+`);
+    return;
+  }
+  const d = evaluateHook(normalize2(event, raw), { root });
+  const out = hookOutput(d, detectHarness(harnessFlag));
+  if (out.stdout) process.stdout.write(out.stdout + "\n");
+  if (out.stderr) process.stderr.write(out.stderr + "\n");
+}
+var HOOK_EVENTS, BLIND_AGENTS, HANDOFF_DENY;
+var init_hooks = __esm({
+  "src/hooks.ts"() {
+    "use strict";
+    init_repo();
+    init_dirty();
+    init_payload();
+    init_util();
+    init_env();
+    HOOK_EVENTS = ["session-start", "handoff-guard", "protect-tests", "stop-gate"];
+    BLIND_AGENTS = {
+      "test-checker:tcheck-blind-writer": "writer",
+      "test-checker:tcheck-repair": "repair",
+      "tcheck-blind-writer": "writer",
+      "tcheck-repair": "repair"
+    };
+    HANDOFF_DENY = "Blind roles must receive the exact output of `tcheck bundle emit`. Re-emit and pass it verbatim.";
+  }
+});
+
+// src/mcp.ts
+import * as readline from "node:readline";
+function openRepo() {
+  const root = findRoot({});
+  if (!root) throw envMissing("test-checker could not find the repository (CLAUDE_PROJECT_DIR is unset and cwd is not in a git repo)");
+  return Repo.open({ root });
+}
+function callTool(name, args, repo = openRepo()) {
+  const id = String(args?.payload_id ?? "");
+  switch (name) {
+    case "submit_tests":
+      return submitTests(repo, id, args.files, args.notes).message;
+    case "save_spec": {
+      const { entry } = loadPayload(repo, id);
+      requireRole(entry, ["spec"]);
+      specSave(repo, entry.run, entry.target, String(args.raw_output ?? ""));
+      return `Spec saved for ${entry.target}. Leak check: passed.`;
+    }
+    case "save_verdict": {
+      const { entry } = loadPayload(repo, id);
+      requireRole(entry, ["adjudicate"]);
+      return adjudicateSave(repo, entry.run, entry.test, String(args.raw_output ?? "")).message;
+    }
+    default:
+      throw new TcheckError(`unknown tool: ${name}`);
+  }
+}
+function handle(msg) {
+  const reply = (result) => ({ jsonrpc: "2.0", id: msg.id, result });
+  const fail = (code, message) => ({ jsonrpc: "2.0", id: msg.id, error: { code, message } });
+  const isRequest = msg.id !== void 0 && msg.id !== null;
+  switch (msg.method) {
+    case "initialize": {
+      const asked = msg.params?.protocolVersion;
+      return reply({
+        protocolVersion: PROTOCOLS.includes(asked) ? asked : PROTOCOLS[0],
+        capabilities: { tools: { listChanged: false } },
+        serverInfo: { name: "tcheck", version: "0.1.0" },
+        instructions: "test-checker's internal role tools. Only the test-checker subagents should call these."
+      });
+    }
+    case "ping":
+      return reply({});
+    case "tools/list":
+      return reply({ tools: TOOLS });
+    case "tools/call": {
+      const { name, arguments: args } = msg.params ?? {};
+      try {
+        return reply({ content: [{ type: "text", text: callTool(name, args ?? {}) }], isError: false });
+      } catch (e) {
+        return reply({ content: [{ type: "text", text: `ERROR: ${e?.message ?? e}` }], isError: true });
+      }
+    }
+    default:
+      if (!isRequest) return void 0;
+      if (msg.method === "resources/list") return reply({ resources: [] });
+      if (msg.method === "prompts/list") return reply({ prompts: [] });
+      return fail(-32601, `method not found: ${msg.method}`);
+  }
+}
+function serve() {
+  return new Promise((resolve3) => {
+    const rl = readline.createInterface({ input: process.stdin, terminal: false });
+    rl.on("line", (line) => {
+      if (!line.trim()) return;
+      let msg;
+      try {
+        msg = JSON.parse(line);
+      } catch {
+        process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } }) + "\n");
+        return;
+      }
+      for (const m of Array.isArray(msg) ? msg : [msg]) {
+        const out = handle(m);
+        if (out) process.stdout.write(JSON.stringify(out) + "\n");
+      }
+    });
+    rl.on("close", () => resolve3());
+  });
+}
+var PROTOCOLS, INTERNAL, TOOLS;
+var init_mcp = __esm({
+  "src/mcp.ts"() {
+    "use strict";
+    init_repo();
+    init_bundle();
+    init_spec();
+    init_adjudicate();
+    init_payload();
+    init_util();
+    PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+    INTERNAL = "For test-checker's internal roles only; never call this yourself.";
+    TOOLS = [
+      {
+        name: "submit_tests",
+        description: `Submit the unit test files written for a test-checker payload. ${INTERNAL} Blind writer and repair roles call it once, with the payload_id from their payload header.`,
+        inputSchema: {
+          type: "object",
+          properties: {
+            payload_id: { type: "string", description: "The id from the <<<TCHECK-PAYLOAD header, e.g. p-1c9e04ab" },
+            files: {
+              type: "array",
+              description: "Complete test files. `path` is a plain file name following the naming pattern in the payload (no directories).",
+              items: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } }, required: ["path", "content"] }
+            },
+            notes: { type: "string", description: "Optional: spec ambiguities noticed" }
+          },
+          required: ["payload_id", "files"]
+        }
+      },
+      {
+        name: "save_spec",
+        description: `Save the spec-extractor's answer (the <analysis> and <spec> blocks) for a test-checker payload. ${INTERNAL}`,
+        inputSchema: {
+          type: "object",
+          properties: { payload_id: { type: "string" }, raw_output: { type: "string", description: "The complete answer, including <analysis> and <spec>" } },
+          required: ["payload_id", "raw_output"]
+        }
+      },
+      {
+        name: "save_verdict",
+        description: `Save the adjudicator's verdict (<verdict>, <spec_basis>, <reason>) for a test-checker payload. ${INTERNAL}`,
+        inputSchema: {
+          type: "object",
+          properties: { payload_id: { type: "string" }, raw_output: { type: "string", description: "The complete answer, including <verdict>, <spec_basis> and <reason>" } },
+          required: ["payload_id", "raw_output"]
+        }
+      }
+    ];
+  }
+});
+
 // src/lib.ts
 var init_lib = __esm({
   "src/lib.ts"() {
@@ -2361,6 +2682,8 @@ var init_lib = __esm({
     init_bundle();
     init_spec();
     init_adjudicate();
+    init_hooks();
+    init_mcp();
   }
 });
 
@@ -2391,8 +2714,8 @@ var init_status = __esm({
 });
 
 // src/promote.ts
-import * as fs17 from "node:fs";
-import * as path14 from "node:path";
+import * as fs18 from "node:fs";
+import * as path15 from "node:path";
 function planPromotion(repo, runId, opts = {}) {
   const run2 = loadRun(repo, runId);
   const cls2 = loadClassification(repo, runId);
@@ -2421,7 +2744,7 @@ function planPromotion(repo, runId, opts = {}) {
     }
     if (!cfg.promote_dir) throw new TcheckError("promote_dir is not set in .test-checker/config.yaml", EXIT.USAGE);
     const t = loadTarget(repo, runId, f.target);
-    files.push({ source: f.path, dest: path14.posix.join(expandPath(cfg.promote_dir, t), path14.posix.basename(f.path)), target: f.target, tests: tests.map((x) => x.id) });
+    files.push({ source: f.path, dest: path15.posix.join(expandPath(cfg.promote_dir, t), path15.posix.basename(f.path)), target: f.target, tests: tests.map((x) => x.id) });
   }
   return { files, skipped };
 }
@@ -2439,9 +2762,9 @@ Fix the code and re-run exec (code-wrong), or ask the user and record \`tcheck a
   const plan = planPromotion(repo, runId, opts);
   if (!plan.files.length) return { promoted: [], skipped: plan.skipped, verified: [] };
   for (const f of plan.files) {
-    const dest = path14.join(repo.root, f.dest);
-    const content = fs17.readFileSync(runDir(repo, runId, "composed", f.source), "utf8");
-    if (fs17.existsSync(dest) && fs17.readFileSync(dest, "utf8") !== content && !opts.force) {
+    const dest = path15.join(repo.root, f.dest);
+    const content = fs18.readFileSync(runDir(repo, runId, "composed", f.source), "utf8");
+    if (fs18.existsSync(dest) && fs18.readFileSync(dest, "utf8") !== content && !opts.force) {
       throw new TcheckError(`${f.dest} already exists with different content (--force to overwrite)`, EXIT.REJECTED);
     }
     writeText(dest, content);
@@ -2474,7 +2797,7 @@ var init_promote = __esm({
 });
 
 // src/report.ts
-import * as fs18 from "node:fs";
+import * as fs19 from "node:fs";
 function buildReport(repo, runId, opts = {}) {
   const run2 = loadRun(repo, runId);
   const cls2 = loadClassification(repo, runId);
@@ -2510,7 +2833,7 @@ function buildReport(repo, runId, opts = {}) {
   });
   const suspicions = run2.targets.map((tid) => {
     const f = runDir(repo, runId, "targets", tid, "analysis.md");
-    return { target: tid, analysis: fs18.existsSync(f) ? fs18.readFileSync(f, "utf8").trim() : "" };
+    return { target: tid, analysis: fs19.existsSync(f) ? fs19.readFileSync(f, "utf8").trim() : "" };
   }).filter((s) => s.analysis && !/^(logical mistakes:\s*none found\.?\s*robustness omissions:\s*none found\.?)$/i.test(s.analysis.replace(/\s+/g, " ")));
   const decisions = decided.filter((d) => d.v.verdict === "spec-ambiguous" && !verdicts[d.test].override).map((d) => ({ test: d.test, question: d.v.reason, spec_basis: d.v.spec_basis }));
   const misguided = cls2.tests.filter((t) => t.category === "misguided" || t.category === "disputed").map((t) => {
@@ -2615,8 +2938,8 @@ var doctor_exports = {};
 __export(doctor_exports, {
   doctor: () => doctor
 });
-import * as fs19 from "node:fs";
-import * as path15 from "node:path";
+import * as fs20 from "node:fs";
+import * as path16 from "node:path";
 async function doctor(repo, opts) {
   const checks = [];
   const log = opts.log ?? ((s) => process.stderr.write(s + "\n"));
@@ -2633,13 +2956,13 @@ async function doctor(repo, opts) {
   else checks.push({ name: "source_globs", ok: true, detail: `e.g. ${src}` });
   const stand = { id: "tcheck-doctor", file: src ?? "doctor", symbol: "doctor" };
   const testDir = expandPath(cfg.test_dir, stand);
-  const name = (n) => path15.posix.join(testDir, expandPath(cfg.test_file_pattern, stand, n));
+  const name = (n) => path16.posix.join(testDir, expandPath(cfg.test_file_pattern, stand, n));
   let files;
   if (opts.use?.length) {
     files = opts.use.map((p) => {
-      const abs = path15.resolve(p);
-      if (!fs19.existsSync(abs)) throw new TcheckError(`--use file not found: ${p}`, EXIT.USAGE);
-      return { path: path15.posix.join(testDir, path15.basename(abs)), content: fs19.readFileSync(abs, "utf8") };
+      const abs = path16.resolve(p);
+      if (!fs20.existsSync(abs)) throw new TcheckError(`--use file not found: ${p}`, EXIT.USAGE);
+      return { path: path16.posix.join(testDir, path16.basename(abs)), content: fs20.readFileSync(abs, "utf8") };
     });
   } else {
     const tpl = TEMPLATES.find((t) => t.match.test(cfg.framework));
@@ -2651,18 +2974,18 @@ async function doctor(repo, opts) {
         EXIT.USAGE
       );
     }
-    const pkgDir = src ? path15.posix.dirname(src) : ".";
-    const goPkg = src && fs19.existsSync(path15.join(repo.root, src)) ? /^package\s+(\w+)/m.exec(fs19.readFileSync(path15.join(repo.root, src), "utf8"))?.[1] : void 0;
-    files = tpl.files({ name, pkg: goPkg ?? path15.posix.basename(pkgDir), javaPkg: packagePath(stand.file).replace(/\//g, ".") }).map((f) => ({ path: name(f.n), content: f.content }));
+    const pkgDir = src ? path16.posix.dirname(src) : ".";
+    const goPkg = src && fs20.existsSync(path16.join(repo.root, src)) ? /^package\s+(\w+)/m.exec(fs20.readFileSync(path16.join(repo.root, src), "utf8"))?.[1] : void 0;
+    files = tpl.files({ name, pkg: goPkg ?? path16.posix.basename(pkgDir), javaPkg: packagePath(stand.file).replace(/\//g, ".") }).map((f) => ({ path: name(f.n), content: f.content }));
   }
   const snapId = `doctor-${randHex(6)}`;
   const commit = snapshotWorktree(repo, snapId);
   const wt = ensureWorktree(repo, commit);
   try {
     for (const f of files) {
-      const dst = path15.join(wt.dir, f.path);
-      fs19.mkdirSync(path15.dirname(dst), { recursive: true });
-      fs19.writeFileSync(dst, f.content);
+      const dst = path16.join(wt.dir, f.path);
+      fs20.mkdirSync(path16.dirname(dst), { recursive: true });
+      fs20.writeFileSync(dst, f.content);
       wt.meta.composed.push(f.path);
     }
     wt.saveMeta();
@@ -2670,9 +2993,9 @@ async function doctor(repo, opts) {
     const env = commandEnv(cfg);
     const timeout = cfg.timeouts.per_command_seconds;
     const junitDir = repo.p("runs", "_doctor");
-    fs19.rmSync(junitDir, { recursive: true, force: true });
-    fs19.mkdirSync(junitDir, { recursive: true });
-    const junit = path15.join(junitDir, "junit.xml");
+    fs20.rmSync(junitDir, { recursive: true, force: true });
+    fs20.mkdirSync(junitDir, { recursive: true });
+    const junit = path16.join(junitDir, "junit.xml");
     const vars = { files: files.map((f) => f.path).join(" "), junit, test_dir: testDir, root: wt.dir };
     for (const step of ["setup", "compile"]) {
       const cmd = cfg.commands[step];
@@ -2715,9 +3038,9 @@ ${output}` : "The failing test did not fail: check that {files} is honoured and 
     });
     return { ok, checks, code: ok ? EXIT.OK : EXIT.COMMAND };
   } finally {
-    for (const f of wt.meta.composed) fs19.rmSync(path15.join(wt.dir, f), { force: true });
+    for (const f of wt.meta.composed) fs20.rmSync(path16.join(wt.dir, f), { force: true });
     repo.git(["worktree", "remove", "--force", wt.dir], { allowFail: true });
-    fs19.rmSync(repo.p("worktrees", "_cache", `${commit}.json`), { force: true });
+    fs20.rmSync(repo.p("worktrees", "_cache", `${commit}.json`), { force: true });
     repo.git(["update-ref", "-d", `refs/tcheck/${snapId}/worktree`], { allowFail: true });
   }
 }
@@ -2736,7 +3059,7 @@ var init_doctor = __esm({
     init_junit();
     init_run();
     init_util();
-    cls = (file) => path15.basename(file).replace(/\..*$/, "");
+    cls = (file) => path16.basename(file).replace(/\..*$/, "");
     TEMPLATES = [
       { match: /pytest/i, files: () => [{ n: 1, content: "def test_tcheck_doctor_pass():\n    assert 1 + 1 == 2\n\n\ndef test_tcheck_doctor_fail():\n    assert 1 + 1 == 3\n" }] },
       {
@@ -2830,6 +3153,8 @@ var init_commands = __esm({
     init_adjudicate();
     init_report();
     init_promote();
+    init_hooks();
+    init_mcp();
     repoOf = (a) => Repo.open({ root: str(a, "root") });
     register("doctor", async (a) => {
       const repo = Repo.open({ root: str(a, "root") });
@@ -2841,6 +3166,19 @@ var init_commands = __esm({
         r.ok ? "doctor: all checks passed." : "doctor: fix the failing checks and run again."
       ].join("\n");
       return { data: r, human, code: r.code };
+    });
+    register("hook", async (a) => {
+      try {
+        await runHookCli(a._[1] ?? "", str(a, "harness"), str(a, "root"));
+      } catch (e) {
+        process.stderr.write(`tcheck hook: ${e?.message ?? e}
+`);
+      }
+      return { data: void 0, code: 0 };
+    });
+    register("mcp", async () => {
+      await serve();
+      return { data: void 0 };
     });
     register("run start", (a) => {
       const r = runStart(repoOf(a), { mode: str(a, "mode") ?? "", buggy: str(a, "buggy"), fixed: str(a, "fixed"), existing: list(a, "existing") });
@@ -2950,7 +3288,7 @@ ${r.setup_error}`] : []).join("\n");
 });
 
 // src/cli.ts
-import * as fs20 from "node:fs";
+import * as fs21 from "node:fs";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 function parseArgs(argv) {
   const a = { _: [], flags: {} };
@@ -3022,7 +3360,7 @@ async function loadCommands() {
 function isMain() {
   if (!process.argv[1]) return false;
   try {
-    return fs20.realpathSync(process.argv[1]) === fs20.realpathSync(fileURLToPath2(import.meta.url));
+    return fs21.realpathSync(process.argv[1]) === fs21.realpathSync(fileURLToPath2(import.meta.url));
   } catch {
     return false;
   }
@@ -3081,15 +3419,21 @@ See docs/engine-spec.md \xA75.`;
 });
 init_cli();
 export {
+  TOOLS as MCP_TOOLS,
   Repo,
   bool,
   buildFixtureRepo,
+  callTool,
   checkLeak,
   detectHarness,
   dirtyFiles,
+  editedPaths,
+  evaluateHook,
   findRoot,
   frame,
   globToRegex,
+  handle as handleMcp,
+  hookOutput,
   list,
   listFixtures,
   loadFixture,
@@ -3098,6 +3442,7 @@ export {
   mapRange,
   matchGlobs,
   normalize,
+  normalize2 as normalizeHookEvent,
   parseArgs,
   parseConfig,
   parseFrame,
@@ -3108,6 +3453,7 @@ export {
   parseYaml,
   payloadIndex,
   pluginRoot,
+  protectGlobs,
   redactLeaks,
   redactRepairText,
   register,
