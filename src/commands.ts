@@ -7,6 +7,9 @@ import { classify } from "./classify";
 import { readInput, usage } from "./util";
 import { contextSet, specEdit, specPrompt, specSave, specShow } from "./spec";
 import { bundleBuild, bundleEmit, ingest } from "./bundle";
+import { adjudicateOverride, adjudicatePrompt, adjudicateSave, queue } from "./adjudicate";
+import { report } from "./report";
+import { promote } from "./promote";
 
 const repoOf = (a: Args) => Repo.open({ root: str(a, "root") });
 function need(a: Args, i: number, name: string): string {
@@ -97,6 +100,44 @@ register("exec", async (a) => {
     .concat(r.setup_error ? [`setup failed:\n${r.setup_error}`] : [])
     .join("\n");
   return { data: r, human, code: r.code };
+});
+
+register("adjudicate queue", (a) => {
+  const q = queue(repoOf(a), need(a, 1, "run"));
+  return { data: q, human: q.length ? q.map((x) => `${x.status === "pending" ? "pending " : `${x.verdict}`.padEnd(8)} ${x.test}\n         ${x.category}: ${x.reason}`).join("\n") : "Nothing queued." };
+});
+
+register("adjudicate prompt", (a) => {
+  const p = adjudicatePrompt(repoOf(a), need(a, 1, "run"), need(a, 2, "test"));
+  return { data: { payload: p.id, text: p.full }, human: p.full };
+});
+
+register("adjudicate save", (a) => {
+  const from = str(a, "from");
+  if (!from) throw usage("adjudicate save needs --from FILE (or - for stdin)");
+  const r = adjudicateSave(repoOf(a), need(a, 1, "run"), need(a, 2, "test"), readInput(from));
+  return { data: r, human: r.message };
+});
+
+register("adjudicate override", (a) => {
+  const r = adjudicateOverride(repoOf(a), need(a, 1, "run"), need(a, 2, "test"), str(a, "verdict") ?? "", str(a, "reason") ?? "");
+  return { data: r, human: r.message };
+});
+
+register("report", (a) => {
+  const r = report(repoOf(a), need(a, 1, "run"), { harness: str(a, "harness") });
+  return { data: r.report, human: r.summary };
+});
+
+register("promote", (a) => {
+  const r = promote(repoOf(a), need(a, 1, "run"), { tests: list(a, "tests"), allAccepted: bool(a, "all-accepted"), force: bool(a, "force") });
+  const human = [
+    r.promoted.length ? `Promoted ${r.promoted.length} file(s):` : "Nothing promoted.",
+    ...r.promoted.map((f) => `  ${f.dest}`),
+    ...r.skipped.map((s) => `  skipped ${s.file}: ${s.reason}`),
+    ...(r.verified.length ? [`Marked verified: ${r.verified.join(", ")}`] : []),
+  ].join("\n");
+  return { data: r, human };
 });
 
 register("classify", (a) => {

@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { Repo, Config } from "./repo";
 import { Case, Outcome, readJUnitPath } from "./junit";
-import { ComposedFile, ERRORS_LABEL, LABELS, RunJson, ensureWorktree, loadRun, runDir, saveRun } from "./run";
+import { ComposedFile, ERRORS_LABEL, LABELS, RunJson, ensureWorktree, loadRun, runDir, saveRun, snapshotWorktree } from "./run";
 import { EXIT, isWin, nowIso, readJson, shell, toPosix, usage, writeJson, RunResult } from "./util";
 
 /** engine-spec §8.4 language-family defaults. */
@@ -243,6 +243,17 @@ export async function execRun(repo: Repo, runId: string, opts: { log?: (s: strin
     return lr;
   };
 
+  // Revisions given as WORKTREE are re-snapshotted, so a code fix after a code-wrong verdict is picked up.
+  if (run.exec_count > 0) {
+    for (const [label, given] of Object.entries(run.given)) {
+      if (given !== "WORKTREE") continue;
+      const sha = snapshotWorktree(repo, runId);
+      if (sha !== run.revisions[label]) {
+        repo.ledger("revision_refreshed", { run: runId, label, from: run.revisions[label], to: sha });
+        run.revisions[label] = sha;
+      }
+    }
+  }
   for (const label of LABELS[run.mode]) {
     results.labels[label] = await runLabel(label, run.revisions[label], cfg.flake_reruns);
   }

@@ -11,3 +11,4 @@ export { redactRepairText } from "./repair";
 export { renderTemplate, parseFrame, frame, loadPayload, payloadIndex } from "./payload";
 export { parseTextSubmission, submitTests } from "./bundle";
 export { parseSpecOutput } from "./spec";
+export { mapRange, parseVerdict } from "./adjudicate";

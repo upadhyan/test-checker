@@ -4,7 +4,7 @@
 
 **Blocked by:** 07 — Unverified-file tracking: `status`, `scope`, `waive`, 12 — Bundles, emit, ingest: the manual blind loop
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] `code-wrong` with `spec_basis: none` is downgraded
 - [ ] Report sections follow §12 order

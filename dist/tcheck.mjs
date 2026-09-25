@@ -893,28 +893,28 @@ function parseJUnit(xml) {
       if (child) buf += m[1];
       continue;
     }
-    const [, , close, tag2, attrText, selfClose] = m;
-    if (!tag2) continue;
-    if (!close && tag2 === "testcase") {
+    const [, , close, tag3, attrText, selfClose] = m;
+    if (!tag3) continue;
+    if (!close && tag3 === "testcase") {
       const a = attrs(attrText);
       cur = { classname: a.classname ?? "", name: a.name ?? "", outcome: "pass", ...a.file ? { file: a.file } : {} };
       if (selfClose) {
         cases.push(cur);
         cur = null;
       }
-    } else if (close && tag2 === "testcase" && cur) {
+    } else if (close && tag3 === "testcase" && cur) {
       cases.push(cur);
       cur = null;
-    } else if (cur && !close && (tag2 === "failure" || tag2 === "error" || tag2 === "skipped")) {
+    } else if (cur && !close && (tag3 === "failure" || tag3 === "error" || tag3 === "skipped")) {
       const a = attrs(attrText);
-      if (cur.outcome === "pass" || tag2 !== "skipped") cur.outcome = tag2;
+      if (cur.outcome === "pass" || tag3 !== "skipped") cur.outcome = tag3;
       if (a.type) cur.type = a.type;
       if (a.message) cur.message = a.message;
       if (!selfClose) {
-        child = tag2;
+        child = tag3;
         buf = "";
       }
-    } else if (close && child && tag2 === child && cur) {
+    } else if (close && child && tag3 === child && cur) {
       cur.text = (cur.text ? cur.text + "\n" : "") + buf.trim();
       child = null;
     }
@@ -1488,23 +1488,23 @@ function contextSet(repo, runId, targetId2, file) {
 function loadContext(repo, runId, targetId2) {
   return readJson(runDir(repo, runId, "targets", targetId2, "context.json"), {});
 }
-function contextMarkdown(ctx, tag2, opts = {}) {
+function contextMarkdown(ctx, tag3, opts = {}) {
   const out = [];
   const et = ctx.enclosing_type;
   if (et) {
     out.push(`### Enclosing type \`${et.name ?? "?"}\``);
-    if (et.constructors?.length) out.push("Constructors:", fence(tag2, et.constructors));
-    if (et.fields?.length) out.push("Fields:", fence(tag2, et.fields));
-    if (et.sibling_signatures?.length) out.push("Other methods:", fence(tag2, et.sibling_signatures));
+    if (et.constructors?.length) out.push("Constructors:", fence(tag3, et.constructors));
+    if (et.fields?.length) out.push("Fields:", fence(tag3, et.fields));
+    if (et.sibling_signatures?.length) out.push("Other methods:", fence(tag3, et.sibling_signatures));
   }
   for (const t of ctx.types ?? []) {
     out.push(`### Type \`${t.name}\`${t.file ? ` (${t.file})` : ""}`);
-    if (t.constructors?.length) out.push("Constructors:", fence(tag2, t.constructors));
-    if (t.public_signatures?.length) out.push("Public members:", fence(tag2, t.public_signatures));
+    if (t.constructors?.length) out.push("Constructors:", fence(tag3, t.constructors));
+    if (t.public_signatures?.length) out.push("Public members:", fence(tag3, t.public_signatures));
   }
-  if (ctx.module_signatures?.length) out.push("### Other functions in the module", fence(tag2, ctx.module_signatures));
+  if (ctx.module_signatures?.length) out.push("### Other functions in the module", fence(tag3, ctx.module_signatures));
   const tc = ctx.test_conventions ?? {};
-  if (!opts.forWriter && tc.imports?.length) out.push("### Test imports", fence(tag2, tc.imports));
+  if (!opts.forWriter && tc.imports?.length) out.push("### Test imports", fence(tag3, tc.imports));
   if (tc.fixtures?.length) out.push("### Available fixtures and helpers", tc.fixtures.map((f) => `- ${f}`).join("\n"));
   return out.length ? out.join("\n\n") : "(none provided)";
 }
@@ -1576,7 +1576,7 @@ var init_spec = __esm({
     init_payload();
     init_schema();
     init_util();
-    fence = (tag2, lines) => "```" + tag2 + "\n" + lines.join("\n") + "\n```";
+    fence = (tag3, lines) => "```" + tag3 + "\n" + lines.join("\n") + "\n```";
     tag = (text, name) => {
       const m = new RegExp(`<${name}>([\\s\\S]*?)</${name}>`, "i").exec(text);
       return m ? m[1].trim() : null;
@@ -1616,11 +1616,11 @@ function bundleBuild(repo, runId, targetId2) {
   repo.ledger("bundle_frozen", { run: runId, target: targetId2, bundle: id });
   return { bundle: id };
 }
-function previousTestsMarkdown(repo, runId, targetId2, tag2) {
+function previousTestsMarkdown(repo, runId, targetId2, tag3) {
   const round = latestRound(repo, runId, targetId2);
   if (round === null) return "(none)";
   return listFilesRecursive(generatedDir(repo, runId, targetId2, round)).filter((f) => !isRoundMeta(path11.basename(f))).map((f) => `FILE: ${path11.basename(f)}
-\`\`\`${tag2}
+\`\`\`${tag3}
 ${fs12.readFileSync(f, "utf8").trimEnd()}
 \`\`\``).join("\n\n");
 }
@@ -1746,96 +1746,8 @@ var init_bundle = __esm({
   }
 });
 
-// src/lib.ts
-var init_lib = __esm({
-  "src/lib.ts"() {
-    "use strict";
-    init_repo();
-    init_env();
-    init_yaml();
-    init_schema();
-    init_util();
-    init_fixtures();
-    init_junit();
-    init_leak();
-    init_repair();
-    init_payload();
-    init_bundle();
-    init_spec();
-  }
-});
-
-// src/verdicts.ts
-import * as fs13 from "node:fs";
-function loadVerdicts(repo, runId) {
-  return readJson(runDir(repo, runId, "verdicts.json"), {});
-}
-function effective(e) {
-  return e?.override ?? e?.model;
-}
-function unresolved(repo, runId) {
-  const run2 = loadRun(repo, runId);
-  const verdicts = loadVerdicts(repo, runId);
-  const resultsFile = runDir(repo, runId, "results.json");
-  const results = fs13.existsSync(resultsFile) ? readJson(resultsFile) : null;
-  const ledger = repo.readLedger().filter((e) => e.run === runId);
-  const out = [];
-  for (const [test, entry] of Object.entries(verdicts)) {
-    const v = effective(entry);
-    if (!v || v.verdict === "test-wrong") continue;
-    const target = test.split("::")[0];
-    if (v.verdict === "code-wrong") {
-      const lr = results?.labels[ERRORS_LABEL[run2.mode]];
-      const fixedNow = results && results.at > v.at && lr?.tests[test]?.final === "pass";
-      if (fixedNow) continue;
-    } else {
-      if (entry.override) continue;
-      const edit = ledger.find((e) => e.type === "spec_edited" && e.target === target && e.ts > v.at);
-      if (edit && ledger.some((e) => e.type === "tests_submitted" && e.target === target && e.ts > edit.ts)) continue;
-    }
-    out.push({ run: runId, test, target, verdict: v.verdict, reason: v.reason, spec_basis: v.spec_basis });
-  }
-  return out;
-}
-function openRuns(repo) {
-  return listRuns(repo).filter((r) => r.status === "open").map((r) => r.id);
-}
-var init_verdicts = __esm({
-  "src/verdicts.ts"() {
-    "use strict";
-    init_run();
-    init_util();
-  }
-});
-
-// src/status.ts
-var status_exports = {};
-__export(status_exports, {
-  status: () => status
-});
-function status(repo) {
-  const dirty = dirtyFiles(repo);
-  const runs = openRuns(repo);
-  const open = runs.flatMap((r) => unresolved(repo, r));
-  const data = { gate: repo.config.gate, dirty_files: dirty, open_runs: runs, unresolved_verdicts: open };
-  const human = [
-    `gate: ${data.gate}`,
-    `unverified source files: ${dirty.length ? dirty.join(", ") : "none"}`,
-    `open runs: ${runs.length ? runs.join(", ") : "none"}`,
-    ...open.length ? ["unresolved verdicts:", ...open.map((u) => `  ${u.verdict}: ${u.test} (${u.run})`)] : ["unresolved verdicts: none"]
-  ].join("\n");
-  return { data, human };
-}
-var init_status = __esm({
-  "src/status.ts"() {
-    "use strict";
-    init_dirty();
-    init_verdicts();
-  }
-});
-
 // src/exec.ts
-import * as fs14 from "node:fs";
+import * as fs13 from "node:fs";
 import * as path12 from "node:path";
 function repairPatterns(cfg) {
   const src = cfg.repair_error_patterns ?? DEFAULT_PATTERNS[FAMILY[cfg.language.toLowerCase()]] ?? Object.values(DEFAULT_PATTERNS).flat();
@@ -1919,15 +1831,15 @@ async function execRun(repo, runId, opts = {}) {
   const cfg = repo.config;
   const log = opts.log ?? ((s) => process.stderr.write(s + "\n"));
   const composedFile = runDir(repo, runId, "composed.json");
-  if (!fs14.existsSync(composedFile)) throw usage(`nothing composed for ${runId}; run \`tcheck compose ${runId}\` first`);
+  if (!fs13.existsSync(composedFile)) throw usage(`nothing composed for ${runId}; run \`tcheck compose ${runId}\` first`);
   const composed = readJson(composedFile).files;
   const n = run2.exec_count + 1;
   const env = commandEnv(cfg);
   const patterns = repairPatterns(cfg);
   const results = { exec: n, at: nowIso(), labels: {} };
   const files = [
-    ...composed.map((f) => ({ path: f.path, target: f.target, content: fs14.readFileSync(path12.join(runDir(repo, runId, "composed"), f.path), "utf8") })),
-    ...run2.existing.map((p) => ({ path: p, target: "existing", content: fs14.readFileSync(path12.join(repo.root, p), "utf8") }))
+    ...composed.map((f) => ({ path: f.path, target: f.target, content: fs13.readFileSync(path12.join(runDir(repo, runId, "composed"), f.path), "utf8") })),
+    ...run2.existing.map((p) => ({ path: p, target: "existing", content: fs13.readFileSync(path12.join(repo.root, p), "utf8") }))
   ];
   const testDir = composed.length ? path12.posix.dirname(composed[0].path) : "";
   const runLabel = async (label, commit, reruns, patch, only) => {
@@ -1937,8 +1849,8 @@ async function execRun(repo, runId, opts = {}) {
     for (const f of composed) {
       const src = path12.join(runDir(repo, runId, "composed"), f.path);
       const dst = path12.join(wt.dir, f.path);
-      fs14.mkdirSync(path12.dirname(dst), { recursive: true });
-      fs14.copyFileSync(src, dst);
+      fs13.mkdirSync(path12.dirname(dst), { recursive: true });
+      fs13.copyFileSync(src, dst);
       wt.meta.composed.push(f.path);
     }
     wt.saveMeta();
@@ -1972,13 +1884,13 @@ async function execRun(repo, runId, opts = {}) {
     const perRerun = [];
     for (let k = 1; k <= reruns; k++) {
       const kdir = runDir(repo, runId, "exec", String(n), label, String(k));
-      fs14.rmSync(kdir, { recursive: true, force: true });
-      fs14.mkdirSync(kdir, { recursive: true });
+      fs13.rmSync(kdir, { recursive: true, force: true });
+      fs13.mkdirSync(kdir, { recursive: true });
       const junit = path12.join(kdir, "junit.xml");
       const cmd = fillCommand(cfg.commands.run, { ...vars, junit: q(junit) });
       log(`[${label}] run ${k}/${reruns}`);
       const r = await shell(cmd, { cwd: wt.dir, env, timeoutSec: timeout });
-      fs14.writeFileSync(path12.join(kdir, "output.txt"), `$ ${cmd}
+      fs13.writeFileSync(path12.join(kdir, "output.txt"), `$ ${cmd}
 exit ${r.code}${r.timedOut ? " (timeout)" : ""}
 
 ${r.stdout}
@@ -2016,6 +1928,16 @@ ${r.stderr}`);
     }
     return lr;
   };
+  if (run2.exec_count > 0) {
+    for (const [label, given] of Object.entries(run2.given)) {
+      if (given !== "WORKTREE") continue;
+      const sha = snapshotWorktree(repo, runId);
+      if (sha !== run2.revisions[label]) {
+        repo.ledger("revision_refreshed", { run: runId, label, from: run2.revisions[label], to: sha });
+        run2.revisions[label] = sha;
+      }
+    }
+  }
   for (const label of LABELS[run2.mode]) {
     results.labels[label] = await runLabel(label, run2.revisions[label], cfg.flake_reruns);
   }
@@ -2100,7 +2022,7 @@ async function runMutants(repo, run2, results, runLabel, log) {
 }
 function loadResults(repo, runId) {
   const f = runDir(repo, runId, "results.json");
-  if (!fs14.existsSync(f)) throw usage(`no results for ${runId}; run \`tcheck exec ${runId}\``);
+  if (!fs13.existsSync(f)) throw usage(`no results for ${runId}; run \`tcheck exec ${runId}\``);
   return readJson(f);
 }
 var DEFAULT_PATTERNS, FAMILY, q, tail;
@@ -2137,7 +2059,7 @@ var init_exec = __esm({
 });
 
 // src/classify.ts
-import * as fs15 from "node:fs";
+import * as fs14 from "node:fs";
 function outcomeOf(lr, id) {
   if (!lr) return "missing";
   const t = lr.tests[id];
@@ -2149,7 +2071,7 @@ function classify(repo, runId) {
   const res = loadResults(repo, runId);
   const errLabel = ERRORS_LABEL[run2.mode];
   const tests = [];
-  const queue = [];
+  const queue2 = [];
   const dropped = [];
   const all = /* @__PURE__ */ new Map();
   for (const [label, lr] of Object.entries(res.labels)) {
@@ -2181,18 +2103,18 @@ function classify(repo, runId) {
     if (c.category === "flaky") dropped.push({ id: c.id, target: c.target, reason: "flaky across reruns" });
     if (c.category === "unrepairable") dropped.push({ id: c.id, target: c.target, reason: "setup/import error after repair rounds" });
     if (c.category === "misguided" || c.category === "broken") {
-      queue.push({ test: c.id, category: c.category, reason: c.category === "misguided" ? "fails on the fixed revision but passes on the buggy one" : "fails on both revisions", revision: "fixed" });
+      queue2.push({ test: c.id, category: c.category, reason: c.category === "misguided" ? "fails on the fixed revision but passes on the buggy one" : "fails on both revisions", revision: "fixed" });
     }
-    if (c.category === "disputed") queue.push({ test: c.id, category: c.category, reason: "fails on the current code", revision: "current" });
+    if (c.category === "disputed") queue2.push({ test: c.id, category: c.category, reason: "fails on the current code", revision: "current" });
   }
   if (run2.mode === "audit") {
     const existing = tests.filter((t) => t.existing && t.category === "accepted");
-    for (const qi of queue) {
+    for (const qi of queue2) {
       const bt = tests.find((t) => t.id === qi.test);
       const target = loadTarget(repo, runId, bt.target);
       const unit = target.symbol.split(/[.:#]/).pop();
       const re = new RegExp(`\\b${unit.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
-      const pair = existing.filter((e) => re.test(fs15.readFileSync(`${repo.root}/${e.file}`, "utf8"))).map((e) => e.id);
+      const pair = existing.filter((e) => re.test(fs14.readFileSync(`${repo.root}/${e.file}`, "utf8"))).map((e) => e.id);
       if (pair.length) {
         qi.pair = pair;
         qi.reason += `; existing test(s) on the same unit pass: ${pair.map((p) => p.split("::").pop()).join(", ")}`;
@@ -2216,10 +2138,14 @@ function classify(repo, runId) {
     counts[k] ??= {};
     counts[k][t.category] = (counts[k][t.category] ?? 0) + 1;
   }
-  const out = { run: runId, exec: res.exec, mode: run2.mode, at: nowIso(), tests, queue, counts, dropped, ...kill_rate ? { kill_rate } : {} };
+  const out = { run: runId, exec: res.exec, mode: run2.mode, at: nowIso(), tests, queue: queue2, counts, dropped, ...kill_rate ? { kill_rate } : {} };
   writeJson(runDir(repo, runId, "classification.json"), out);
-  repo.ledger("classified", { run: runId, exec: res.exec, counts, queued: queue.length });
+  repo.ledger("classified", { run: runId, exec: res.exec, counts, queued: queue2.length });
   return out;
+}
+function loadClassification(repo, runId) {
+  const f = runDir(repo, runId, "classification.json");
+  return fs14.existsSync(f) ? readJson(f) : null;
 }
 var passed;
 var init_classify = __esm({
@@ -2232,13 +2158,465 @@ var init_classify = __esm({
   }
 });
 
+// src/verdicts.ts
+import * as fs15 from "node:fs";
+function loadVerdicts(repo, runId) {
+  return readJson(runDir(repo, runId, "verdicts.json"), {});
+}
+function saveVerdicts(repo, runId, v) {
+  writeJson(runDir(repo, runId, "verdicts.json"), v);
+}
+function effective(e) {
+  return e?.override ?? e?.model;
+}
+function unresolved(repo, runId) {
+  const run2 = loadRun(repo, runId);
+  const verdicts = loadVerdicts(repo, runId);
+  const resultsFile = runDir(repo, runId, "results.json");
+  const results = fs15.existsSync(resultsFile) ? readJson(resultsFile) : null;
+  const ledger = repo.readLedger().filter((e) => e.run === runId);
+  const out = [];
+  for (const [test, entry] of Object.entries(verdicts)) {
+    const v = effective(entry);
+    if (!v || v.verdict === "test-wrong") continue;
+    const target = test.split("::")[0];
+    if (v.verdict === "code-wrong") {
+      const lr = results?.labels[ERRORS_LABEL[run2.mode]];
+      const fixedNow = results && results.at > v.at && lr?.tests[test]?.final === "pass";
+      if (fixedNow) continue;
+    } else {
+      if (entry.override) continue;
+      const edit = ledger.find((e) => e.type === "spec_edited" && e.target === target && e.ts > v.at);
+      if (edit && ledger.some((e) => e.type === "tests_submitted" && e.target === target && e.ts > edit.ts)) continue;
+    }
+    out.push({ run: runId, test, target, verdict: v.verdict, reason: v.reason, spec_basis: v.spec_basis });
+  }
+  return out;
+}
+function openRuns(repo) {
+  return listRuns(repo).filter((r) => r.status === "open").map((r) => r.id);
+}
+var VERDICTS;
+var init_verdicts = __esm({
+  "src/verdicts.ts"() {
+    "use strict";
+    init_run();
+    init_util();
+    VERDICTS = ["code-wrong", "test-wrong", "spec-ambiguous"];
+  }
+});
+
+// src/adjudicate.ts
+import * as fs16 from "node:fs";
+import * as path13 from "node:path";
+function queue(repo, runId) {
+  const cls2 = loadClassification(repo, runId);
+  if (!cls2) throw usage(`run \`tcheck classify ${runId}\` first`);
+  const v = loadVerdicts(repo, runId);
+  return cls2.queue.map((q2) => {
+    const e = effective(v[q2.test]);
+    return { ...q2, status: e ? "decided" : "pending", ...e ? { verdict: e.verdict, source: e.source } : {} };
+  });
+}
+function mapRange(repo, from, to, file, [a, b]) {
+  if (from === to) return [a, b];
+  const diff = repo.git(["diff", "-U0", from, to, "--", file], { allowFail: true });
+  const map = (x, end) => {
+    let delta = 0;
+    for (const m of diff.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)) {
+      const [os3, ol, ns, nl] = [+m[1], m[2] === void 0 ? 1 : +m[2], +m[3], m[4] === void 0 ? 1 : +m[4]];
+      if (ol === 0) {
+        if (x > os3 || end && x === os3) delta += nl;
+        else break;
+      } else if (x > os3 + ol - 1) delta += nl - ol;
+      else if (x >= os3) return end ? ns + Math.max(nl, 1) - 1 : ns;
+      else break;
+    }
+    return x + delta;
+  };
+  const s = map(a, false);
+  return [s, Math.max(s, map(b, true))];
+}
+function bodyAt(repo, t, commit) {
+  if (commit === t.commit) return t.body;
+  const [a, b] = mapRange(repo, t.commit, commit, t.file, t.lines);
+  const lines = fileAt(repo, commit, t.file).split(/\r?\n/);
+  return lines.slice(a - 1, b).join("\n");
+}
+function queued(repo, runId, testId) {
+  const cls2 = loadClassification(repo, runId);
+  const q2 = cls2?.queue.find((x) => x.test === testId);
+  if (!q2) throw usage(`${testId} is not queued for adjudication in ${runId} (see \`tcheck adjudicate queue ${runId}\`)`);
+  return q2;
+}
+function composedSource(repo, runId, file) {
+  const composed = runDir(repo, runId, "composed", file);
+  if (fs16.existsSync(composed)) return fs16.readFileSync(composed, "utf8");
+  return fs16.readFileSync(path13.join(repo.root, file), "utf8");
+}
+function adjudicatePrompt(repo, runId, testId) {
+  const run2 = loadRun(repo, runId);
+  const q2 = queued(repo, runId, testId);
+  const results = loadResults(repo, runId);
+  const label = ERRORS_LABEL[run2.mode];
+  const tr = results.labels[label]?.tests[testId];
+  const anyTr = tr ?? Object.values(results.labels).map((l) => l.tests[testId]).find(Boolean);
+  if (!anyTr) throw usage(`no results for ${testId}`);
+  const targetId2 = testId.split("::")[0];
+  const t = loadTarget(repo, runId, targetId2);
+  let testSource = composedSource(repo, runId, anyTr.file);
+  for (const pair of q2.pair ?? []) {
+    const ex = results.labels[label].tests[pair];
+    if (ex) testSource += `
+
+# --- existing test ${ex.name} (${ex.file}), which PASSES on the current code ---
+${composedSource(repo, runId, ex.file)}`;
+  }
+  const failure = tr ? [`Test: ${tr.name} (${tr.file})`, `Outcome on ${label}: ${tr.final}`, [tr.type, tr.message].filter(Boolean).join(": "), tr.text ?? ""].filter(Boolean).join("\n") : `Test: ${anyTr.name} produced no result on ${label} (${results.labels[label]?.timed_out.length ? "timeout" : "not collected"}).`;
+  const commit = run2.revisions[label];
+  const analysisFile = runDir(repo, runId, "targets", targetId2, "analysis.md");
+  const vars = {
+    ...configVars(repo, t),
+    spec: loadSpec(repo, runId, targetId2) ?? "(no spec saved)",
+    analysis: fs16.existsSync(analysisFile) ? fs16.readFileSync(analysisFile, "utf8").trim() : "",
+    test_source: testSource.trimEnd(),
+    failure_output: failure.slice(0, 8e3),
+    target: { symbol: t.symbol, file: t.file, body: bodyAt(repo, t, commit) },
+    revision: `${label} (${commit.slice(0, 10)})`
+  };
+  const body = renderPrompt("adjudicate.md", vars, "adjudicate");
+  return storePayload(repo, { role: "adjudicate", run: runId, target: targetId2, test: testId }, body);
+}
+function parseVerdict(raw) {
+  const v = (tag2(raw, "verdict") ?? "").toLowerCase().replace(/[`*]/g, "").trim();
+  if (!VERDICTS.includes(v)) throw rejected(`<verdict> must be exactly one of ${VERDICTS.join(", ")}; got "${v || "(missing)"}"`);
+  const spec_basis = tag2(raw, "spec_basis") ?? "none";
+  const reason = tag2(raw, "reason") ?? "";
+  if (v === "code-wrong" && /^(none|n\/a|)$/i.test(spec_basis.replace(/["'.]/g, "").trim())) {
+    return { verdict: "spec-ambiguous", spec_basis, reason, warning: "code-wrong without a quoted spec sentence was downgraded to spec-ambiguous" };
+  }
+  return { verdict: v, spec_basis, reason };
+}
+function applyQuarantine(repo, testId, on) {
+  repo.updateState((s) => {
+    s.quarantined = s.quarantined.filter((q2) => q2 !== testId);
+    if (on) s.quarantined.push(testId);
+  });
+}
+function adjudicateSave(repo, runId, testId, raw) {
+  queued(repo, runId, testId);
+  const p = parseVerdict(raw);
+  const v = { ...p, source: "model", at: nowIso() };
+  const all = loadVerdicts(repo, runId);
+  all[testId] = { ...all[testId], model: v };
+  saveVerdicts(repo, runId, all);
+  if (!all[testId].override) applyQuarantine(repo, testId, v.verdict === "test-wrong");
+  repo.ledger("verdict", { run: runId, test: testId, verdict: v.verdict, spec_basis: v.spec_basis, ...v.warning ? { warning: v.warning } : {} });
+  return { test: testId, ...v, message: `Verdict recorded: ${v.verdict} for ${testId}.${v.warning ? ` Warning: ${v.warning}.` : ""}` };
+}
+function adjudicateOverride(repo, runId, testId, verdict, reason) {
+  if (!VERDICTS.includes(verdict)) throw usage(`--verdict must be one of ${VERDICTS.join(", ")}`);
+  if (!reason) throw usage("override needs --reason");
+  loadRun(repo, runId);
+  const v = { verdict, spec_basis: "user decision", reason, source: "user", at: nowIso() };
+  const all = loadVerdicts(repo, runId);
+  all[testId] = { ...all[testId], override: v };
+  saveVerdicts(repo, runId, all);
+  applyQuarantine(repo, testId, v.verdict === "test-wrong");
+  repo.ledger("override", { run: runId, test: testId, verdict, reason });
+  return { test: testId, ...v, message: `Override recorded: ${verdict} for ${testId}.` };
+}
+var tag2;
+var init_adjudicate = __esm({
+  "src/adjudicate.ts"() {
+    "use strict";
+    init_classify();
+    init_exec();
+    init_run();
+    init_payload();
+    init_spec();
+    init_verdicts();
+    init_util();
+    tag2 = (text, name) => {
+      const m = new RegExp(`<${name}>([\\s\\S]*?)</${name}>`, "i").exec(text);
+      return m ? m[1].trim() : null;
+    };
+  }
+});
+
+// src/lib.ts
+var init_lib = __esm({
+  "src/lib.ts"() {
+    "use strict";
+    init_repo();
+    init_env();
+    init_yaml();
+    init_schema();
+    init_util();
+    init_fixtures();
+    init_junit();
+    init_leak();
+    init_repair();
+    init_payload();
+    init_bundle();
+    init_spec();
+    init_adjudicate();
+  }
+});
+
+// src/status.ts
+var status_exports = {};
+__export(status_exports, {
+  status: () => status
+});
+function status(repo) {
+  const dirty = dirtyFiles(repo);
+  const runs = openRuns(repo);
+  const open = runs.flatMap((r) => unresolved(repo, r));
+  const data = { gate: repo.config.gate, dirty_files: dirty, open_runs: runs, unresolved_verdicts: open };
+  const human = [
+    `gate: ${data.gate}`,
+    `unverified source files: ${dirty.length ? dirty.join(", ") : "none"}`,
+    `open runs: ${runs.length ? runs.join(", ") : "none"}`,
+    ...open.length ? ["unresolved verdicts:", ...open.map((u) => `  ${u.verdict}: ${u.test} (${u.run})`)] : ["unresolved verdicts: none"]
+  ].join("\n");
+  return { data, human };
+}
+var init_status = __esm({
+  "src/status.ts"() {
+    "use strict";
+    init_dirty();
+    init_verdicts();
+  }
+});
+
+// src/promote.ts
+import * as fs17 from "node:fs";
+import * as path14 from "node:path";
+function planPromotion(repo, runId, opts = {}) {
+  const run2 = loadRun(repo, runId);
+  const cls2 = loadClassification(repo, runId);
+  if (!cls2) throw usage(`run \`tcheck classify ${runId}\` first`);
+  const cfg = repo.config;
+  const quarantined = new Set(repo.state().quarantined);
+  const composed = readJson(runDir(repo, runId, "composed.json"), { files: [] }).files;
+  const acceptable = new Set(run2.mode === "bugfix" ? ["effective", "neutral"] : ["accepted"]);
+  const selected = (t) => opts.tests?.length ? opts.tests.includes(t.id) : opts.allAccepted ? acceptable.has(t.category) : run2.mode === "bugfix" ? t.category === "effective" : t.category === "accepted";
+  const files = [];
+  const skipped = [];
+  for (const f of composed) {
+    const tests = cls2.tests.filter((t2) => t2.file === f.path && !t2.existing);
+    if (!tests.length) {
+      skipped.push({ file: f.path, reason: "no test results" });
+      continue;
+    }
+    const bad = tests.filter((t2) => !acceptable.has(t2.category) || quarantined.has(t2.id));
+    if (bad.length) {
+      skipped.push({ file: f.path, reason: `contains non-accepted tests: ${bad.map((t2) => `${t2.name} (${quarantined.has(t2.id) ? "quarantined" : t2.category})`).join(", ")}` });
+      continue;
+    }
+    if (!tests.some(selected)) {
+      skipped.push({ file: f.path, reason: run2.mode === "bugfix" ? "only neutral tests (use --all-accepted to include)" : "not selected" });
+      continue;
+    }
+    if (!cfg.promote_dir) throw new TcheckError("promote_dir is not set in .test-checker/config.yaml", EXIT.USAGE);
+    const t = loadTarget(repo, runId, f.target);
+    files.push({ source: f.path, dest: path14.posix.join(expandPath(cfg.promote_dir, t), path14.posix.basename(f.path)), target: f.target, tests: tests.map((x) => x.id) });
+  }
+  return { files, skipped };
+}
+function promote(repo, runId, opts = {}) {
+  const run2 = loadRun(repo, runId);
+  const blocking = unresolved(repo, runId);
+  if (blocking.length && !opts.force) {
+    throw new TcheckError(
+      `refusing to promote: unresolved verdicts
+${blocking.map((b) => `  ${b.verdict}: ${b.test}`).join("\n")}
+Fix the code and re-run exec (code-wrong), or ask the user and record \`tcheck adjudicate override\` / \`tcheck spec edit\` (spec-ambiguous). --force skips this check.`,
+      EXIT.REJECTED
+    );
+  }
+  const plan = planPromotion(repo, runId, opts);
+  if (!plan.files.length) return { promoted: [], skipped: plan.skipped, verified: [] };
+  for (const f of plan.files) {
+    const dest = path14.join(repo.root, f.dest);
+    const content = fs17.readFileSync(runDir(repo, runId, "composed", f.source), "utf8");
+    if (fs17.existsSync(dest) && fs17.readFileSync(dest, "utf8") !== content && !opts.force) {
+      throw new TcheckError(`${f.dest} already exists with different content (--force to overwrite)`, EXIT.REJECTED);
+    }
+    writeText(dest, content);
+  }
+  const commit = run2.revisions[ERRORS_LABEL[run2.mode]];
+  const verified = [];
+  const at = nowIso();
+  repo.updateState((s) => {
+    for (const f of plan.files) s.protected[f.dest] = { test_ids: f.tests, run: runId };
+    for (const tid of run2.targets) {
+      const file = loadTarget(repo, runId, tid).file;
+      const sha = repo.git(["rev-parse", `${commit}:${file}`], { allowFail: true }).trim();
+      if (sha) {
+        s.verified[file] = { sha, run: runId, at };
+        verified.push(file);
+      }
+    }
+  });
+  repo.ledger("promoted", { run: runId, files: plan.files.map((f) => f.dest), verified });
+  return { promoted: plan.files, skipped: plan.skipped, verified };
+}
+var init_promote = __esm({
+  "src/promote.ts"() {
+    "use strict";
+    init_classify();
+    init_run();
+    init_verdicts();
+    init_util();
+  }
+});
+
+// src/report.ts
+import * as fs18 from "node:fs";
+function buildReport(repo, runId, opts = {}) {
+  const run2 = loadRun(repo, runId);
+  const cls2 = loadClassification(repo, runId);
+  if (!cls2) throw usage(`run \`tcheck classify ${runId}\` first`);
+  const results = loadResults(repo, runId);
+  const verdicts = loadVerdicts(repo, runId);
+  const harness = detectHarness(opts.harness);
+  const backend = resolveBackend(repo.config.blind.backend, harness, repo.config.blind.api.key_env);
+  const quarantined = new Set(repo.state().quarantined);
+  const cats = run2.mode === "bugfix" ? ["effective", "misguided", "neutral", "broken"] : ["accepted", "disputed"];
+  const summary = run2.targets.map((tid) => {
+    const c = cls2.counts[tid] ?? {};
+    return {
+      target: tid,
+      ...Object.fromEntries(cats.map((k) => [k, c[k] ?? 0])),
+      flaky: c.flaky ?? 0,
+      dropped: cls2.dropped.filter((d) => d.target === tid).length,
+      ...cls2.kill_rate?.[tid] ? { mutant_kill_rate: `${cls2.kill_rate[tid].killed}/${cls2.kill_rate[tid].total}` } : {}
+    };
+  });
+  const testOf = (id) => cls2.tests.find((t) => t.id === id);
+  const failureOf = (id) => {
+    for (const lr of Object.values(results.labels)) {
+      const t = lr.tests[id];
+      if (t && t.final !== "pass") return [t.type, t.message].filter(Boolean).join(": ").slice(0, 300);
+    }
+    return "";
+  };
+  const decided = Object.entries(verdicts).map(([test, e]) => ({ test, v: effective(e) })).filter((x) => x.v);
+  const likely_bugs = decided.filter((d) => d.v.verdict === "code-wrong").map((d) => {
+    const q2 = cls2.queue.find((x) => x.test === d.test);
+    return { test: d.test, target: d.test.split("::")[0], spec_basis: d.v.spec_basis, failure: failureOf(d.test), reason: d.v.reason, ...q2?.pair?.length ? { suspect_existing: q2.pair } : {} };
+  });
+  const suspicions = run2.targets.map((tid) => {
+    const f = runDir(repo, runId, "targets", tid, "analysis.md");
+    return { target: tid, analysis: fs18.existsSync(f) ? fs18.readFileSync(f, "utf8").trim() : "" };
+  }).filter((s) => s.analysis && !/^(logical mistakes:\s*none found\.?\s*robustness omissions:\s*none found\.?)$/i.test(s.analysis.replace(/\s+/g, " ")));
+  const decisions = decided.filter((d) => d.v.verdict === "spec-ambiguous" && !verdicts[d.test].override).map((d) => ({ test: d.test, question: d.v.reason, spec_basis: d.v.spec_basis }));
+  const misguided = cls2.tests.filter((t) => t.category === "misguided" || t.category === "disputed").map((t) => {
+    const e = effective(verdicts[t.id]);
+    return { test: t.id, category: t.category, outcome: e ? `${e.verdict}${e.source === "user" ? " (user)" : ""}` : "pending adjudication" };
+  });
+  const dropped = [
+    ...cls2.dropped.map((d) => ({ what: d.id ? short(d.id) : d.file, target: d.target, reason: d.reason })),
+    ...[...quarantined].filter((q2) => testOf(q2)).map((q2) => ({ what: short(q2), target: q2.split("::")[0], reason: "quarantined (test-wrong)" }))
+  ];
+  const plan = planPromotion(repo, runId, { allAccepted: false });
+  const data = {
+    run: runId,
+    mode: run2.mode,
+    revisions: Object.fromEntries(Object.entries(run2.revisions).map(([l, sha]) => [l, { given: run2.given[l], commit: sha }])),
+    date: nowIso(),
+    harness,
+    blind_isolation: ISOLATION[backend],
+    summary,
+    likely_bugs,
+    suspicions,
+    needs_decision: decisions,
+    misguided,
+    dropped,
+    promotable: plan.files.map((f) => ({ file: f.source, dest: f.dest, tests: f.tests.length })),
+    not_promotable: plan.skipped
+  };
+  return data;
+}
+function table(rows) {
+  if (!rows.length) return "_none_";
+  const cols = Object.keys(rows[0]);
+  return [`| ${cols.join(" | ")} |`, `|${cols.map(() => "---").join("|")}|`, ...rows.map((r) => `| ${cols.map((c) => String(r[c] ?? "")).join(" | ")} |`)].join("\n");
+}
+function reportMarkdown(r) {
+  const out = [];
+  out.push(`# test-checker report ${r.run}`, "");
+  out.push(`- Mode: ${r.mode}`);
+  for (const [l, v] of Object.entries(r.revisions)) out.push(`- ${l}: ${v.given} \u2192 \`${v.commit.slice(0, 10)}\``);
+  out.push(`- Date: ${r.date}`, `- Harness: ${r.harness}`, `- Blind isolation: ${r.blind_isolation}`, "");
+  out.push("## Summary", "", table(r.summary), "");
+  out.push("## Likely bugs", "");
+  out.push(
+    r.likely_bugs.length ? r.likely_bugs.map((b) => `- **${short(b.test)}** (${b.target})
+  - Spec: ${b.spec_basis}
+  - Failure: ${b.failure || "(none recorded)"}
+  - ${b.reason}${b.suspect_existing ? `
+  - suspect-existing: ${b.suspect_existing.map(short).join(", ")}` : ""}`).join("\n") : "_none_",
+    ""
+  );
+  out.push("## Suspicions", "", r.suspicions.length ? r.suspicions.map((s) => `### ${s.target}
+
+${s.analysis}`).join("\n\n") : "_none_", "");
+  out.push("## Needs your decision", "", r.needs_decision.length ? r.needs_decision.map((d) => `- **${short(d.test)}**: ${d.question}
+  - Spec: ${d.spec_basis}`).join("\n") : "_none_", "");
+  out.push("## Misguided tests and what happened to them", "", r.misguided.length ? r.misguided.map((m) => `- ${short(m.test)} (${m.category}): ${m.outcome}`).join("\n") : "_none_", "");
+  out.push("## Dropped", "", r.dropped.length ? r.dropped.map((d) => `- ${d.what} (${d.target}): ${d.reason}`).join("\n") : "_none_", "");
+  out.push("## Promotable tests", "");
+  out.push(r.promotable.length ? r.promotable.map((p) => `- ${p.file} \u2192 \`${p.dest}\` (${p.tests} test(s))`).join("\n") : "_none_");
+  if (r.not_promotable.length) out.push("", "Not promotable:", ...r.not_promotable.map((s) => `- ${s.file}: ${s.reason}`));
+  return out.join("\n") + "\n";
+}
+function consoleSummary(r, mdPath) {
+  const lines = r.summary.map((s) => `${s.target}: ${Object.entries(s).filter(([k]) => k !== "target").map(([k, v]) => `${k} ${v}`).join(", ")}`);
+  const out = [
+    ...lines.slice(0, 5),
+    ...lines.length > 5 ? [`\u2026 ${lines.length - 5} more target(s)`] : [],
+    `likely bugs: ${r.likely_bugs.length}; needs your decision: ${r.needs_decision.length}; dropped: ${r.dropped.length}`,
+    `promotable files: ${r.promotable.length}`,
+    `report: ${mdPath}`
+  ];
+  return out.slice(0, 10).join("\n");
+}
+function report(repo, runId, opts = {}) {
+  const r = buildReport(repo, runId, opts);
+  const md = repo.p("reports", `${runId}.md`);
+  writeText(md, reportMarkdown(r));
+  writeJson(repo.p("reports", `${runId}.json`), r);
+  const run2 = loadRun(repo, runId);
+  run2.status = "reported";
+  saveRun(repo, run2);
+  repo.ledger("run_reported", { run: runId, likely_bugs: r.likely_bugs.length, needs_decision: r.needs_decision.length });
+  return { report: r, path: repo.rel(md), summary: consoleSummary(r, repo.rel(md)) };
+}
+var short;
+var init_report = __esm({
+  "src/report.ts"() {
+    "use strict";
+    init_classify();
+    init_exec();
+    init_env();
+    init_run();
+    init_promote();
+    init_verdicts();
+    init_util();
+    short = (id) => id.split("::").slice(1).join("::") || id;
+  }
+});
+
 // src/doctor.ts
 var doctor_exports = {};
 __export(doctor_exports, {
   doctor: () => doctor
 });
-import * as fs16 from "node:fs";
-import * as path13 from "node:path";
+import * as fs19 from "node:fs";
+import * as path15 from "node:path";
 async function doctor(repo, opts) {
   const checks = [];
   const log = opts.log ?? ((s) => process.stderr.write(s + "\n"));
@@ -2255,13 +2633,13 @@ async function doctor(repo, opts) {
   else checks.push({ name: "source_globs", ok: true, detail: `e.g. ${src}` });
   const stand = { id: "tcheck-doctor", file: src ?? "doctor", symbol: "doctor" };
   const testDir = expandPath(cfg.test_dir, stand);
-  const name = (n) => path13.posix.join(testDir, expandPath(cfg.test_file_pattern, stand, n));
+  const name = (n) => path15.posix.join(testDir, expandPath(cfg.test_file_pattern, stand, n));
   let files;
   if (opts.use?.length) {
     files = opts.use.map((p) => {
-      const abs = path13.resolve(p);
-      if (!fs16.existsSync(abs)) throw new TcheckError(`--use file not found: ${p}`, EXIT.USAGE);
-      return { path: path13.posix.join(testDir, path13.basename(abs)), content: fs16.readFileSync(abs, "utf8") };
+      const abs = path15.resolve(p);
+      if (!fs19.existsSync(abs)) throw new TcheckError(`--use file not found: ${p}`, EXIT.USAGE);
+      return { path: path15.posix.join(testDir, path15.basename(abs)), content: fs19.readFileSync(abs, "utf8") };
     });
   } else {
     const tpl = TEMPLATES.find((t) => t.match.test(cfg.framework));
@@ -2273,18 +2651,18 @@ async function doctor(repo, opts) {
         EXIT.USAGE
       );
     }
-    const pkgDir = src ? path13.posix.dirname(src) : ".";
-    const goPkg = src && fs16.existsSync(path13.join(repo.root, src)) ? /^package\s+(\w+)/m.exec(fs16.readFileSync(path13.join(repo.root, src), "utf8"))?.[1] : void 0;
-    files = tpl.files({ name, pkg: goPkg ?? path13.posix.basename(pkgDir), javaPkg: packagePath(stand.file).replace(/\//g, ".") }).map((f) => ({ path: name(f.n), content: f.content }));
+    const pkgDir = src ? path15.posix.dirname(src) : ".";
+    const goPkg = src && fs19.existsSync(path15.join(repo.root, src)) ? /^package\s+(\w+)/m.exec(fs19.readFileSync(path15.join(repo.root, src), "utf8"))?.[1] : void 0;
+    files = tpl.files({ name, pkg: goPkg ?? path15.posix.basename(pkgDir), javaPkg: packagePath(stand.file).replace(/\//g, ".") }).map((f) => ({ path: name(f.n), content: f.content }));
   }
   const snapId = `doctor-${randHex(6)}`;
   const commit = snapshotWorktree(repo, snapId);
   const wt = ensureWorktree(repo, commit);
   try {
     for (const f of files) {
-      const dst = path13.join(wt.dir, f.path);
-      fs16.mkdirSync(path13.dirname(dst), { recursive: true });
-      fs16.writeFileSync(dst, f.content);
+      const dst = path15.join(wt.dir, f.path);
+      fs19.mkdirSync(path15.dirname(dst), { recursive: true });
+      fs19.writeFileSync(dst, f.content);
       wt.meta.composed.push(f.path);
     }
     wt.saveMeta();
@@ -2292,9 +2670,9 @@ async function doctor(repo, opts) {
     const env = commandEnv(cfg);
     const timeout = cfg.timeouts.per_command_seconds;
     const junitDir = repo.p("runs", "_doctor");
-    fs16.rmSync(junitDir, { recursive: true, force: true });
-    fs16.mkdirSync(junitDir, { recursive: true });
-    const junit = path13.join(junitDir, "junit.xml");
+    fs19.rmSync(junitDir, { recursive: true, force: true });
+    fs19.mkdirSync(junitDir, { recursive: true });
+    const junit = path15.join(junitDir, "junit.xml");
     const vars = { files: files.map((f) => f.path).join(" "), junit, test_dir: testDir, root: wt.dir };
     for (const step of ["setup", "compile"]) {
       const cmd = cfg.commands[step];
@@ -2337,9 +2715,9 @@ ${output}` : "The failing test did not fail: check that {files} is honoured and 
     });
     return { ok, checks, code: ok ? EXIT.OK : EXIT.COMMAND };
   } finally {
-    for (const f of wt.meta.composed) fs16.rmSync(path13.join(wt.dir, f), { force: true });
+    for (const f of wt.meta.composed) fs19.rmSync(path15.join(wt.dir, f), { force: true });
     repo.git(["worktree", "remove", "--force", wt.dir], { allowFail: true });
-    fs16.rmSync(repo.p("worktrees", "_cache", `${commit}.json`), { force: true });
+    fs19.rmSync(repo.p("worktrees", "_cache", `${commit}.json`), { force: true });
     repo.git(["update-ref", "-d", `refs/tcheck/${snapId}/worktree`], { allowFail: true });
   }
 }
@@ -2358,7 +2736,7 @@ var init_doctor = __esm({
     init_junit();
     init_run();
     init_util();
-    cls = (file) => path13.basename(file).replace(/\..*$/, "");
+    cls = (file) => path15.basename(file).replace(/\..*$/, "");
     TEMPLATES = [
       { match: /pytest/i, files: () => [{ n: 1, content: "def test_tcheck_doctor_pass():\n    assert 1 + 1 == 2\n\n\ndef test_tcheck_doctor_fail():\n    assert 1 + 1 == 3\n" }] },
       {
@@ -2449,6 +2827,9 @@ var init_commands = __esm({
     init_util();
     init_spec();
     init_bundle();
+    init_adjudicate();
+    init_report();
+    init_promote();
     repoOf = (a) => Repo.open({ root: str(a, "root") });
     register("doctor", async (a) => {
       const repo = Repo.open({ root: str(a, "root") });
@@ -2524,6 +2905,39 @@ ${r.analysis}` : "") };
 ${r.setup_error}`] : []).join("\n");
       return { data: r, human, code: r.code };
     });
+    register("adjudicate queue", (a) => {
+      const q2 = queue(repoOf(a), need(a, 1, "run"));
+      return { data: q2, human: q2.length ? q2.map((x) => `${x.status === "pending" ? "pending " : `${x.verdict}`.padEnd(8)} ${x.test}
+         ${x.category}: ${x.reason}`).join("\n") : "Nothing queued." };
+    });
+    register("adjudicate prompt", (a) => {
+      const p = adjudicatePrompt(repoOf(a), need(a, 1, "run"), need(a, 2, "test"));
+      return { data: { payload: p.id, text: p.full }, human: p.full };
+    });
+    register("adjudicate save", (a) => {
+      const from = str(a, "from");
+      if (!from) throw usage("adjudicate save needs --from FILE (or - for stdin)");
+      const r = adjudicateSave(repoOf(a), need(a, 1, "run"), need(a, 2, "test"), readInput(from));
+      return { data: r, human: r.message };
+    });
+    register("adjudicate override", (a) => {
+      const r = adjudicateOverride(repoOf(a), need(a, 1, "run"), need(a, 2, "test"), str(a, "verdict") ?? "", str(a, "reason") ?? "");
+      return { data: r, human: r.message };
+    });
+    register("report", (a) => {
+      const r = report(repoOf(a), need(a, 1, "run"), { harness: str(a, "harness") });
+      return { data: r.report, human: r.summary };
+    });
+    register("promote", (a) => {
+      const r = promote(repoOf(a), need(a, 1, "run"), { tests: list(a, "tests"), allAccepted: bool(a, "all-accepted"), force: bool(a, "force") });
+      const human = [
+        r.promoted.length ? `Promoted ${r.promoted.length} file(s):` : "Nothing promoted.",
+        ...r.promoted.map((f) => `  ${f.dest}`),
+        ...r.skipped.map((s) => `  skipped ${s.file}: ${s.reason}`),
+        ...r.verified.length ? [`Marked verified: ${r.verified.join(", ")}`] : []
+      ].join("\n");
+      return { data: r, human };
+    });
     register("classify", (a) => {
       const c = classify(repoOf(a), need(a, 1, "run"));
       const human = [
@@ -2536,7 +2950,7 @@ ${r.setup_error}`] : []).join("\n");
 });
 
 // src/cli.ts
-import * as fs17 from "node:fs";
+import * as fs20 from "node:fs";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 function parseArgs(argv) {
   const a = { _: [], flags: {} };
@@ -2608,7 +3022,7 @@ async function loadCommands() {
 function isMain() {
   if (!process.argv[1]) return false;
   try {
-    return fs17.realpathSync(process.argv[1]) === fs17.realpathSync(fileURLToPath2(import.meta.url));
+    return fs20.realpathSync(process.argv[1]) === fs20.realpathSync(fileURLToPath2(import.meta.url));
   } catch {
     return false;
   }
@@ -2681,6 +3095,7 @@ export {
   loadFixture,
   loadPayload,
   main,
+  mapRange,
   matchGlobs,
   normalize,
   parseArgs,
@@ -2689,6 +3104,7 @@ export {
   parseJUnit,
   parseSpecOutput,
   parseTextSubmission,
+  parseVerdict,
   parseYaml,
   payloadIndex,
   pluginRoot,

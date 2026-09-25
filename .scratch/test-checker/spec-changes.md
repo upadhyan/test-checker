@@ -8,3 +8,4 @@
 - §10: ledger type `initialized` (from `init`).
 - package.json: test script is `node --test tests/*.test.js` (Node 22+ treats a bare directory as a module).
 - fixtures-spec: fixtures carry context.json (selftest has no agent to write context); stale_state targets Counter.reset (the bug's home).
+- §8.1: exec re-snapshots labels given as WORKTREE on every exec after the first (ledger revision_refreshed), so code fixes after code-wrong are tested.
