@@ -33,8 +33,12 @@ export function writeFiles(dir, files) {
 }
 
 /** Run the engine; returns {code, stdout, stderr, json}. */
+export const VENV_BIN = path.join(ROOT, ".venv", "bin");
+/** Python fixtures run `python -m pytest`; the repo venv provides both. */
+export const PATH_WITH_VENV = fs.existsSync(VENV_BIN) ? `${VENV_BIN}${path.delimiter}${process.env.PATH}` : process.env.PATH;
+
 export function tcheck(cwd, args, opts = {}) {
-  const env = { ...process.env, ...opts.env };
+  const env = { ...process.env, PATH: PATH_WITH_VENV, ...opts.env };
   delete env.CLAUDE_PROJECT_DIR;
   const r = spawnSync(process.execPath, [ENGINE, ...args], { cwd, encoding: "utf8", input: opts.input, env });
   let json;

@@ -1,0 +1,7 @@
+{
+  "module_signatures": [],
+  "test_conventions": {
+    "imports": ["from fx.stats import sum_to"],
+    "fixtures": []
+  }
+}

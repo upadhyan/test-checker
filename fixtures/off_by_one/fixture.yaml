@@ -1,0 +1,8 @@
+name: off_by_one
+language: python
+target: "src/fx/stats.py::sum_to"
+lines: [4, 10]               # body range in the SPEC-SOURCE tree (buggy, for selftest)
+bug: "range(n) instead of range(n + 1): sum_to(n) omits n"
+intent: "sum_to(n) returns 1 + 2 + … + n; 0 for n == 0; ValueError for n < 0"
+expect:
+  min_effective_blind: 1    # the blind run should catch it

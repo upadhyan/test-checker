@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 — Config, `init`, ledger and state
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] `off_by_one` fixture exists per fixtures-spec
 - [ ] `run start`, `target add`, `compose`, `exec`, `classify` work for REV revisions

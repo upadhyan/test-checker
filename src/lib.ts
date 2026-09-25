@@ -4,3 +4,6 @@ export { detectHarness, resolveBackend } from "./env";
 export { parseYaml } from "./yaml";
 export { validate } from "./schema";
 export { globToRegex, matchGlobs } from "./util";
+export { buildFixtureRepo, listFixtures, loadFixture } from "./fixtures";
+export { parseJUnit } from "./junit";
+export { checkLeak, redactLeaks, normalize, signatureLineCount, significantLines } from "./leak";
