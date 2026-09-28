@@ -234,7 +234,7 @@ test-checker/
 ├── examples/config.{python,typescript,go,java,rust}.yaml
 ├── fixtures/                      # selftest cases per docs/fixtures-spec.md   [code]
 ├── docs/ plugin-design.md, engine-spec.md, fixtures-spec.md, test-verification-procedure.md
-├── docs/BUILDING.md               # build brief for Claude Code
+├── CONTRIBUTING.md
 └── README.md
 ```
 

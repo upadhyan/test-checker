@@ -54,7 +54,7 @@ When you're happy, it promotes the good tests into your suite.
 
 - `docs/plugin-design.md`: architecture and harness decisions
 - `docs/engine-spec.md`: engine CLI, MCP and hook contract
-- `docs/BUILDING.md`: brief for building the code with Claude Code
+- `CONTRIBUTING.md`: rules and checks for changing the code
 - `docs/test-verification-procedure.md`: the paper's procedure
 - `skills/test-checker/references/config-reference.md`: every config field
 

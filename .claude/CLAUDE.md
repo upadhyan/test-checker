@@ -1,1 +1,0 @@
-@docs/BUILDING.md
