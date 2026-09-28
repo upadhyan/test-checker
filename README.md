@@ -1,19 +1,20 @@
 # test-checker
 
-Makes your coding agent's unit tests **catch bugs instead of enshrining them**.
+An agent plugin that audits your unit tests so they **catch bugs instead of enshrining them**.
 
-LLMs that write tests while looking at buggy code tend to write tests that pass on the bug. test-checker implements the procedure from Zhao, Zhou & Cohen, [*Evaluating and Mitigating the Misguidance Effect of Buggy Code in LLM-Generated Unit Tests*](https://arxiv.org/abs/2607.22883):
+When an LLM writes tests while looking at buggy code, it tends to write tests that pass on the bug. test-checker applies the fix from [Zhao, Zhou & Cohen (2026)](https://arxiv.org/abs/2607.22883):
 
-1. **Spec first:** derive what the code is *meant* to do.
-2. **Blind generation:** write tests from that spec, without showing the implementation.
-3. **Dual execution:** run the tests on the buggy and the fixed version, and classify each one as effective, misguided, neutral or broken.
-4. **Adjudicate:** decide whether a failing test or the code is wrong, and ask you when the spec is ambiguous.
+1. **Spec first:** derive what each unit is *meant* to do.
+2. **Blind generation:** write tests from that spec without showing the implementation.
+3. **Dual execution:** run them on the buggy and fixed versions and classify each test as effective, misguided, neutral or broken.
+4. **Adjudicate:** decide whether the test or the code is wrong, and ask you when the spec is ambiguous.
 
-It works with any language whose test runner can write JUnit XML (nearly all of them).
+It works with Claude Code, Cowork, Codex, OpenCode and Pi, and with any language whose test runner can write JUnit XML.
+> NOTE: THIS IS NOT THE OFFICIAL PAPER REPOSITORY. It is just a plugin built based on my understanding of the paper. Please visit https://github.com/drixs2050/EvalAndMitigate for the official code
 
 ## Install
 
-Requires **Node ≥ 20** and **git** on your PATH. No API key is needed: everything runs on your existing Claude or ChatGPT subscription through the harness.
+Requires **Node ≥ 20** and **git**. No API key: it runs on your existing harness subscription.
 
 | Harness | Install |
 |---|---|
@@ -22,41 +23,46 @@ Requires **Node ≥ 20** and **git** on your PATH. No API key is needed: everyth
 | Codex | `codex plugin marketplace add upadhyan/test-checker` then `codex plugin add test-checker@test-checker` |
 | OpenCode | Add `{ "plugin": ["@upadhyan/test-checker"] }` to `opencode.json` |
 | Pi | `pi install git:github.com/upadhyan/test-checker` |
-| Other | Copy `skills/test-checker` into your harness's skills folder. Blind generation runs through any installed harness CLI (`claude`, `codex`, `opencode`, `pi`) |
+| Other | Copy `skills/test-checker` into your harness's skills folder |
 
 ## Use
 
-In a repo:
+In your repo:
 
-1. **Set up:** "set up test-checker". The agent writes `.test-checker/config.yaml` and checks that it works.
-2. **Audit your tests:** `/test-checker audit my tests`. The agent rewrites every unit's tests blind from a spec and checks them against your code. Existing tests that enshrine a bug are replaced with verified ones once the bug is fixed; the rest stay.
-3. **After fixing a bug:** "verify the tests for this fix".
-4. **For new code:** "write verified tests for `parse_date`".
+- **Set up:** "set up test-checker". This writes and checks `.test-checker/config.yaml`.
+- **Audit:** `/test-checker audit my tests`. Every unit gets blind, spec-derived tests. Existing tests that enshrine a bug are replaced once the bug is fixed; the rest stay.
+- **After a bug fix:** "verify the tests for this fix".
+- **New code:** "write verified tests for `parse_date`".
 
-The agent runs the loop and gives you a short report:
+You get a short report of likely bugs, dropped tests and open questions, then the agent promotes the good tests into your suite.
 
-- likely bugs, with the spec line each one violates and the existing tests that enshrine them;
-- tests it dropped, and why;
-- questions only you can answer.
+## Repo layout
 
-When you're happy, it promotes the good tests into your suite.
-
-## How blindness is enforced
-
-| Harness | Mechanism |
+| Path | What |
 |---|---|
-| Claude Code / Cowork | Blind subagent whose only tool is `submit_tests`; a hook verifies it received the frozen spec payload |
-| OpenCode | Hidden subagent with every permission denied except `tcheck_submit_tests`; same handoff check |
-| Pi | Extension tool that calls the model directly with no tools |
-| Codex | `codex exec` in an empty temp directory (optionally a direct API call, if you have a key) |
+| `skills/`, `agents/`, `prompts/` | The skill, blind subagent role cards, and the paper's prompts |
+| `src/` → `dist/tcheck.mjs` | The `tcheck` engine (TypeScript, bundled and committed) |
+| `.claude-plugin/`, `.codex-plugin/`, `.opencode/`, `pi-extension/` | Per-harness integrations |
+| `fixtures/`, `tests/` | Selftest bug/fix pairs and unit tests |
+| `docs/` | Design, engine contract and the paper's procedure |
 
-## Docs
+See `CONTRIBUTING.md` for changing the code.
 
-- `docs/plugin-design.md`: architecture and harness decisions
-- `docs/engine-spec.md`: engine CLI, MCP and hook contract
-- `CONTRIBUTING.md`: rules and checks for changing the code
-- `docs/test-verification-procedure.md`: the paper's procedure
-- `skills/test-checker/references/config-reference.md`: every config field
+## Citation
+
+If you use test-checker, please cite the paper it implements:
+
+```bibtex
+@misc{zhao2026misguidance,
+  title         = {Evaluating and Mitigating the Misguidance Effect of Buggy Code in LLM-Generated Unit Tests},
+  author        = {Zhao, Junda and Zhou, Shurui and Cohen, Eldan},
+  year          = {2026},
+  eprint        = {2607.22883},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.SE},
+  url           = {https://arxiv.org/abs/2607.22883}
+}
+```
 
 ## License
 
